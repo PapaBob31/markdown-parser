@@ -1,0 +1,14 @@
+{
+  "name": "markdown-parser",
+  "version": "1.0.0",
+  "description": "\"library for parsing markdown according to a subset of the github flavored markdown spec\"",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "egbebitimi121@gmail.com",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^22.5.0"
+  }
+}
