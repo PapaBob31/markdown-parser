@@ -7,7 +7,7 @@ interface LinkRef {
 	title: string
 }
 
-const PUNCTUATIONS = "<>;,.()[]{}!`~+-*&^%$#@\\/\"':?~|";
+const PUNCTUATIONS = "<>;,.()[]{}!`~+-*&^%$#@\\/\"':?~|"; // is this all the possible punctuations?
 
 export function generateHtml(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[]):string {
 	let text = "";
@@ -241,93 +241,48 @@ function processPossibleCodeSpan(startIndex: number, textStream: string): [strin
 	return [`<code>${codeContent}</code>`, codeSpanEndIndex];
 }
 
-function getLinks(startIndex: number, text: string) {
-	let unBalanacedBracketsPos = [];
-	for (let i=startIndex; i<text.length; i++) {
-		if (text[i] === '[') {
-			unBalanacedBracketsPos.push(i);
-		}else if (text[i] === ']' && unBalanacedBracketsPos.length > 0 && text[i+1] === '(') {
-
-		}
-	}
-}
-
-function contentIsLeftFlanking(delimiterNode: Node) {
-	if (!(["star delimiter", "underscore delimiter"]).includes(delimiterNode.type)) {
-		return false;
-	}
-
-	if (!delimiterNode.next) {
-		return false;
-	}
-	if (delimiterNode.next.content[0] !== ' ' && !PUNCTUATIONS.includes(delimiterNode.next.content[0])) {
-		return true
-	}
-	if (!delimiterNode.prev) {
-		return false;
-	}
-	if (PUNCTUATIONS.includes(delimiterNode.next.content[0]) && (PUNCTUATIONS.includes(delimiterNode.prev.content[0]) || delimiterNode.prev.content[0] === ' ')) {
-		return true
-	}
-	return false // execution should never reach here tho but typescript mehn
-}
-
-function contentIsRightFlanking(delimiterNode: Node) {
-	if (!(["star delimiter", "underscore delimiter"]).includes(delimiterNode.type)) {
-		return false;
-	}
-
-	if (!delimiterNode.prev) {
-		return false;
-	}
-	if (delimiterNode.prev.content[0] !== ' ' && !PUNCTUATIONS.includes(delimiterNode.prev.content[0])) {
-		return true
-	}
-	if (!delimiterNode.next) {
-		return false;
-	}
-	if (PUNCTUATIONS.includes(delimiterNode.prev.content[0]) && (PUNCTUATIONS.includes(delimiterNode.next.content[0]) || delimiterNode.next.content[0] === ' ')) {
-		return true
-	}
-	return false // execution should never reach here tho but typescript mehn
-}
-
 // transform node content into raw em|strong tag html
 function transformNodes(opener: Node, closer: Node): Node{
-	// look into the code below. the swapping and generation of nodes looks fraudulent
-	if (closer.content.length > 2 && opener.content.length > 2) {
-		opener.next = {type: "raw html", closed: true, content: "<strong>", next: opener.next, prev: opener};
-		opener.content = opener.content.slice(0, opener.content.length-2);
-
-		closer.prev = {type: "raw html", closed: true, content: "</strong>", next: closer, prev: closer.prev,};
-		closer.content = closer.content.slice(0, 3);
-		return transformNodes(opener, closer);
-	}else if (closer.content.length === 2 && opener.content.length === 2) {
-		opener.content = "<strong>"
-		opener.type = "raw html"
-
-		closer.content = "</strong>"
-		closer.type = "raw html"
-	}else if (closer.content.length === 1 && opener.content.length == 1) {
-		closer.content = "</em>"
-		closer.type = "raw html"
-
-		opener.content = "<em>"
-		opener.type = "raw html"
-	}else if (closer.content.length == 1 && opener.content.length > 1){
-		opener.next = {type: "raw html", closed: true, content: "<em>", next: opener.next, prev: opener};
-		opener.content = opener.content.slice(0, opener.content.length-1);
-
-		closer.content = "</em>"
-		closer.type = "raw html"
-	}else if (closer.content.length > 1 && opener.content.length == 1) {
-		opener.content = "<em>"
-		opener.type = "raw html"
-
-		closer.prev = {type: "raw html", closed: true, content: "</em>", next: closer, prev: closer.prev,};
-		closer.content = closer.content.slice(0, 1);
+	let newNodeName = ""
+	if (closer.content.length >= 2 && opener.content.length >= 2) {
+		if (closer.content.length % 2 === 0) {
+			newNodeName = "strong";
+		}else {
+			newNodeName = "em"
+		}
+	}else if (opener.content.length === 1 || closer.content.length === 1) {
+		newNodeName = "em";
 	}
-	return closer;
+
+	if (opener.content.length <= 2) {
+		opener.content = opener.content.length === 1 ? "<em>" : "<strong>"
+		opener.type = "raw html";
+	}else {
+		let newNode:Node = {type: "raw html", closed: true, content: `<${newNodeName}>`, next: opener.next, prev: opener};
+		opener.next = newNode;
+	}
+
+	if (closer.content.length <= 2) {
+		closer.content = closer.content.length === 1 ? "</em>" : "</strong>"
+		opener.type = "raw html";
+	}else {
+		let newNode = {type: "raw html", closed: true, content: `</${newNodeName}>`, next: closer, prev: closer.prev};
+		closer.prev = newNode;
+	}
+
+	if (opener.type === "raw html" || closer.type === "raw html") {
+		return;
+	}
+
+	if (newNodeName === "em") {
+		opener.content = opener.content.slice(0, opener.content.length-1)
+		closer.content = closer.content.slice(1);
+		transformNodes(opener, closer);
+	}else {
+		opener.content = opener.content.slice(0, opener.content.length-2)
+		closer.content = closer.content.slice(2);
+		transformNodes(opener, closer);
+	}
 }
 
 function uselessAllMarkersBetween(startNode: Node, targetNode: Node) {
@@ -342,44 +297,36 @@ function uselessAllMarkersBetween(startNode: Node, targetNode: Node) {
 	}
 }
 
-function getMatchingNode(ogNode: Node){
-	let matchingNode = null;
-	let currentNode = ogNode.prev;
-
+function findClosingNode(openingNode: Node) {
+	let currentNode = openingNode.next;
 	while (true) {
-		if (!currentNode) {
-			break;
-		}else if (!contentIsLeftFlanking(currentNode)) {
-			currentNode = currentNode.prev;
-			continue;
-		}else if (currentNode.type === ogNode.type && currentNode.content.length === ogNode.content.length) {
-			matchingNode = currentNode;
-			break;
-		}else if (currentNode.type === ogNode.type && !matchingNode){
-			if (!matchingNode) {
-				matchingNode = currentNode; // store the nearsest type incase we never find one with matching length;
-			}
+		if (!currentNode) break;
+		if ((currentNode.content[0] === openingNode.content[0]) && 
+			currentNode.type.startsWith("right flanking")) {
+			uselessAllMarkersBetween(openingNode, currentNode as Node);
+			return currentNode;
 		}
-		currentNode = currentNode.prev;
+		currentNode = currentNode.next;
 	}
-	matchingNode && uselessAllMarkersBetween(matchingNode, currentNode as Node);
-	return matchingNode;
+	return null
 }
 
 
-function processEmphasisNodes(head: Node) {
+function processEmphasisNodes(head: Node) { // TODO: process nodes that are both right and left flanking as well as '_' marker special cases
 	let currentNode = head;
+	let openers = [];
 	while (true) {
-		if (contentIsRightFlanking(currentNode)) {
-			let openerNode = getMatchingNode(currentNode);
-			if (!openerNode) {
-				currentNode.type = "text content";
-				continue;
-			}
-			currentNode = transformNodes(openerNode, currentNode);
+		if (currentNode.type.startsWith("left flanking")) {
+			openers.push(currentNode);
 		}
 		currentNode = currentNode.next as Node;
 		if (!currentNode) break;
+	}
+	for (let i=openers.length-1; i>=0; i--) {
+		let closingNode = findClosingNode(openers[i]);
+		if (closingNode) {
+			transformNodes(openers[i], closingNode)
+		}
 	}
 }
 
@@ -629,6 +576,23 @@ function generateLinkNodes(head: Node, linkRefs: LinkRef[]) {
 	return head;
 }
 
+function setAsLeftOrRightFlanking(delimiterNode: Node, nextChar: string) {
+	let nextCharIsPunc = PUNCTUATIONS.includes(nextChar);
+	// since new lines should be treated as whitespace
+	let prevChar = delimiterNode.prev ? delimiterNode.prev.content[delimiterNode.prev.content.length-1] : ' ';
+	let prevCharIsPunc = PUNCTUATIONS.includes(prevChar);
+
+	if (!(/\s/).test(nextChar) && !nextCharIsPunc) {
+		delimiterNode.type = "left flanking " + delimiterNode.type;
+	}else if (nextCharIsPunc && (prevCharIsPunc || (/\s/).test(prevChar))) {
+		delimiterNode.type = "left flanking " + delimiterNode.type;
+	}else if (!(/\s/).test(prevChar) && !prevCharIsPunc) {
+		delimiterNode.type = "right flanking " + delimiterNode.type;
+	}else if (prevCharIsPunc && (nextCharIsPunc || (/\s/).test(nextChar))) {
+		delimiterNode.type = "right flanking " + delimiterNode.type;
+	}
+}
+
 
 // generates a doubly linked list
 function generateLinkedList(text: string) {
@@ -679,8 +643,14 @@ function generateLinkedList(text: string) {
 			currNode = addOrUpdateExistingNode("link marker end", text[i], currNode);
 		}else if (text[i] === '*') {
 			currNode = addOrUpdateExistingNode("star delimiter", text[i], currNode);
+			if (i<text.length-1 && text[i+1] !== '*'){
+				setAsLeftOrRightFlanking(currNode, text[i+1]);
+			}else if (i === text.length-1) setAsLeftOrRightFlanking(currNode, ' ');
 		}else if (text[i] === '_') {
 			currNode = addOrUpdateExistingNode("underscore delimiter", text[i], currNode);
+			if (i<text.length-1 && text[i+1] !== '_'){
+				setAsLeftOrRightFlanking(currNode, text[i+1]);
+			}else if (i === text.length-1) setAsLeftOrRightFlanking(currNode, ' ');
 		}else {
 			currNode = addOrUpdateExistingNode("text content", text[i], currNode);
 			charIsEscaped = false // incase
