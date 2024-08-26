@@ -18,7 +18,7 @@ export function generateHtml(rootNode: HtmlNode, indentLevel: number, linkRefs: 
 	if (rootNode.nodeName === "html block") {
 		text = `${whiteSpace}${rootNode.textContent}\n`
 	}else if (rootNode.nodeName === "paragraph") {
-		text = `${whiteSpace}<p>${rootNode.textContent}</p>\n`
+		text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : ""// TODO: Don't nest inside paragraphs if paragraph is only comment
 	}else if (rootNode.nodeName === "fenced code" || rootNode.nodeName === "indented code block") {
 		text = `${whiteSpace}<pre class=${rootNode.infoString || ""}>\n${whiteSpace+'  '}<code>${rootNode.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
 	}else if (["hr"].includes(rootNode.nodeName)) {
@@ -90,11 +90,10 @@ export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 			if (childNode.nodeName !== "paragraph") {
 				continue;
 			}
-			!childNode.textContent && console.log(childNode);
 			let linkReference = getLinkReferenceDefs(childNode.textContent as string);
 			if (linkReference) {
 				refs.push(linkReference);
-				rootNode.children.splice(i, 1)
+				rootNode.children[i].textContent = ""; // since it contains link reference definitions
 			}
 		}
 	}
@@ -102,7 +101,7 @@ export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 }
 
 function getLinkReferenceDefs(text: string) { // TODO: search and replace all escaped characters with regex
-	const linkData = text.match(/^\s{0,3}\[([^])\]:\s*((?:<.*>)|(?:\S+))(\s*(?:"|'|\()[^]+)?\s*$/);
+	const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/);
 	const linkRefDef = {label: "", destination: "", title: ""};
 
 	if (!linkData || linkData[1].length > 999) {
@@ -117,10 +116,10 @@ function getLinkReferenceDefs(text: string) { // TODO: search and replace all es
 	}
 
 	if (linkData && linkData[3]){
-		if (linkData[3].includes("\n\n") || linkData[3][0] !== linkData[3][linkData[3].length-1]) {
-			// first condition is maybe a crude way of checking if the text contais blank lines
+		if (linkData[3].includes("\n\n") || (linkData[3][0] !== linkData[3][linkData[3].length-1])) {
+			// first condition is maybe a crude way of checking if the text contains blank lines
 			return null
-		}else linkRefDef.title = linkData[3].slice(0, linkData[3].length-1);
+		}else linkRefDef.title = linkData[3].slice(1, linkData[3].length-1);
 	}
 
 	return linkRefDef
@@ -173,7 +172,7 @@ function getHtmlTagEndPos(tagStartIndex: number, str: string): number {
 	return -1;
 }
 
-function getAutoLinkEndPos(startIndex: number, text: string) {
+function getAutoLinkStr(startIndex: number, text: string) {
 	let matchedPattern = text.slice(startIndex).match(/<[a-zA-Z]{2,32}:\S*>/)
 	if (!matchedPattern) {
 		return "";
@@ -409,7 +408,6 @@ function getEscapedForm(char: string): string {
 // Regex isn't used because It can't match nested possible balanced brackets in link destinations.
 // It could also be a skill issue.. regardless, It's either impossible or I don't know how
 
-
 function getCharTokenType(linkDest: string, linkTitle: string, char: string, currTokenType: string) {
 	if (linkDest && linkTitle && currTokenType === "whitespace" && char !== ')') {
 		return null;
@@ -512,23 +510,109 @@ function closeAllLinkMarkersInBetween(startNode: Node, endNode: Node) {
 		(currentNode as Node).closed = true
 		currentNode = (currentNode as Node).next;
 	}
-	
 }
 
-function generateLinkNodes(head: Node) {
+function normalized(str: string) {
+	return str.toLowerCase().replace(/\s+/, ' ').trim();
+}
+
+function getReferenceLinkData(labelStr: string, linkRefs: LinkRef[]) {
+	for (let obj of linkRefs) {
+		if (normalized(obj.label) === normalized(labelStr)) {
+			return {uri: obj.destination, title: obj.title};
+		}
+	}
+	return null;
+}
+
+function getLinkAttributesFromLabel(labelStartNode: Node, linkRefs: LinkRef[]) {
+	if (!labelStartNode.next) {
+		return null
+	}
+	if (labelStartNode.next.type === "link marker end"){ // link structure is in form [link text][]
+		labelStartNode.prev.next = labelStartNode.next.next; // 'deletes' the nodes containing the []
+		return null;
+	}else if (labelStartNode.next.type !== "text content") return null;
+
+	const labelEndNode = labelStartNode.next.next
+	if (labelEndNode && labelEndNode.type === "link marker end") {
+		let refLinkData = getReferenceLinkData(labelStartNode.next.content, linkRefs);
+		if (refLinkData) {
+			labelStartNode.prev.next = labelEndNode.next; // 'deletes' the nodes containing the link label from the linked list
+			return refLinkData
+		}
+	}
+	return null
+}
+
+function getEnclosedText(opener: Node, closer: Node) {
+	let currentNode = opener.next;
+	let outputText = "";
+
+	while (currentNode !== closer) {
+		outputText += currentNode.content;
+		currentNode = currentNode.next;
+	}
+	return outputText;
+}
+
+function getRefLinks(openerNode: Node, linkRefs: LinkRef[]) {
+	let currentNode = openerNode;
+	let unBalancedBracketsNum = 0;
+	while (true){
+		if (currentNode.type === "link marker end") {
+			if (unBalancedBracketsNum === 0) {
+				return null;
+			}
+			unBalancedBracketsNum--;
+			if (unBalancedBracketsNum === 0 && (!currentNode.next || currentNode.next.type === "link marker start")){
+				break;
+			}
+		}else if (currentNode.type === "link marker start") {
+			unBalancedBracketsNum++;
+		}
+		if (!currentNode.next) {
+			break;
+		}
+		currentNode = currentNode.next;
+	}
+	let linkTextBoundary = currentNode;
+	let linkAttributes;
+	if (currentNode.next) {
+		linkAttributes = getLinkAttributesFromLabel(currentNode.next,  linkRefs)
+	}
+	if (!linkAttributes) {
+		// check if it's a shortcut or collapsed link reference
+		linkAttributes = getReferenceLinkData(getEnclosedText(openerNode, currentNode), linkRefs);
+	}
+	return linkAttributes ? [linkTextBoundary, linkAttributes] : null
+}
+
+function generateLinkNodes(head: Node, linkRefs: LinkRef[]) {
 	let currentNode = head;
 	let openedLinkTextMarkers: Node[] = [];
 
 	while (true) {
 		if (currentNode.type === "link marker end" && openedLinkTextMarkers.length === 0) {
 			currentNode.type = "text content";
+			currentNode.closed = true;
 		}else if (currentNode.type === "link marker start" && !currentNode.closed) {
 			openedLinkTextMarkers.push(currentNode)
 		}else if (currentNode.type === "link marker end") {
-			const linkMarkerStart = (openedLinkTextMarkers.pop() as Node)
-			linkMarkerStart.closed = true;
-			let linkAttributes = getLinkAttributes(currentNode.next as Node)
+			let linkMarkerStart:Node;
+			let linkAttributes = currentNode.next && getLinkAttributes(currentNode.next as Node);
 			if (linkAttributes) {
+				linkMarkerStart = (openedLinkTextMarkers.pop() as Node)
+			}else {
+				let data = getRefLinks(openedLinkTextMarkers[0], linkRefs);
+				if (data) {
+					linkMarkerStart = openedLinkTextMarkers[0];
+					currentNode = data[0] as Node;
+					linkAttributes = data[1] as {uri: string, title: string};
+				}
+			}
+			if (linkAttributes) {
+				linkMarkerStart.closed = true;
 				closeAllLinkMarkersInBetween(linkMarkerStart, currentNode)
 				linkMarkerStart.content = `<a href="${linkAttributes.uri}" title="${linkAttributes.title}">`
 				currentNode.content = "</a>";
@@ -561,28 +645,25 @@ function generateLinkedList(text: string) {
 		}else if (text[i] === '\\'){
 			charIsEscaped = true;
 		}else if (text[i] === '<') { // TODO: ESCAPE Ampersands;
-			console.log("1")
 			let htmlTagEndPos = getHtmlTagEndPos(i, text);
-			console.log("2")
 			if (htmlTagEndPos > -1) {
 				currNode = addOrUpdateExistingNode("raw html", text.slice(i, htmlTagEndPos + 1), currNode)
 				i = htmlTagEndPos + 1;
 				continue;
 			}
-			console.log("3")
-			let autoLinkStr = getAutoLinkEndPos(i, text);
-			console.log("4")
+			let autoLinkStr = getAutoLinkStr(i, text);
 			if (autoLinkStr) {
 				let rawHtml = `<a href="${autoLinkStr}">${autoLinkStr}</a>`;
 				currNode = addOrUpdateExistingNode("raw html", rawHtml, currNode)
 				i += autoLinkStr.length-1; // 1 is subtracted since it's zero based
 				continue;
 			}
-			/*let matchedPattern = text.slice(i).match(/<!--(?:[^](?!<!--))*?-->/) // prolly bad regex for matching html comments. improve later
+			let matchedPattern = text.slice(i).match(/<!--(?!(?:>|->))[^]*-->/)
 			if (matchedPattern) {
-				i = matchedPattern[0].length-1;
+				currNode = addOrUpdateExistingNode("raw html", matchedPattern[0], currNode);
+				i += matchedPattern[0].length;
 				continue;
-			}*/
+			}
 			currNode = addOrUpdateExistingNode("text content", "&lt;", currNode);
 		}else if (text[i] === '`') {
 			const [codeSpan, syntaxEnd] = processPossibleCodeSpan(i, text);
@@ -625,7 +706,7 @@ function convertLinkedListToText(head: Node) {
 
 function parseInlineNodes(text: string, linkRefs: LinkRef[]): string {
 	let listHead = generateLinkedList(text);
-	generateLinkNodes(listHead);
+	generateLinkNodes(listHead, linkRefs);
 	processEmphasisNodes(listHead);
 	return convertLinkedListToText(listHead);
 }
