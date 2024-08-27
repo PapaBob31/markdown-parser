@@ -1,8 +1,7 @@
-
 import { openSync, writeSync, closeSync } from "node:fs";
-import parse from "./parser"
-import { generateHtml, traverseTreeToGetLinkRefs } from "./parserHelper"
 
+import generateBlockNodesTree from "./lib/blockNodesTreeGen"
+import generateHtmlFromTree, { traverseTreeToGetLinkRefs } from "./lib/htmlGenerator"
 
 export interface HtmlNode {
 	parentNode: HtmlNode;
@@ -16,10 +15,16 @@ export interface HtmlNode {
 	startNo?: string;
 }
 
+export default function parse(textStream: string) {
+	const root = generateBlockNodesTree(textStream);
+	const linkRefs = traverseTreeToGetLinkRefs(root);
+	const generatedHtml = generateHtmlFromTree(root, 0, linkRefs)
+	return generatedHtml;
+}
 
-function main() {
-	// reference links aren't supported
-	const sampleText =
+
+// for testing the code
+const sampleText =
 `
 # header 1
 ## header 20, 
@@ -75,8 +80,11 @@ html block without an actual delimiter
 me too [easy oh](threadgently.com 'tdg')
 
 [**strong text**](damn.com)
+***This* text is for testing *em* and __strong__ ***_elements_*** generation. 
+They are indicated by surrounding the target string with _*_ and *_* respectively**
 
-<!-- this content should be ommitted -->
+
+<!-- this content should be ommitted -->[ty](/url)
 
 who dey close am abeg \\<
 
@@ -87,17 +95,23 @@ who dey close am abeg \\<
 - 
 
   45
+
+## Reference links test
+[foo]
+
+[foo]: /firstUrl "shortcut link"
+
+[bar]: /secondUrl "Was defined before the ref link"
+
+[zed][bar];
+
+[collapsedLink][]
+
+[
+collapsedLink
+]: /dest "I am a collapsed link"
 `;
 
-	const root:HtmlNode = {parentNode: null as any, nodeName: "main", indentLevel: 0, closed: false, children: []}
-	// I don't really know why I was able to cast null to any so check typescript docs later
-	let lastOpenedNode: HtmlNode = root; 
-	parse(sampleText, root);
-	const linkRefs = traverseTreeToGetLinkRefs(root);
-
-	return generateHtml(root, 0, linkRefs)
-}
-
 const fd = openSync("./output.html", "w");
-writeSync(fd, main());
+writeSync(fd, parse(sampleText));
 closeSync(fd);

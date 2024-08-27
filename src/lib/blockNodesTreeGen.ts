@@ -1,6 +1,5 @@
-import type {HtmlNode} from "./index"
-import {validListChild, getInnerMostOpenContainer, getValidOpenedAncestor, closeNode, checkIfPartOfOtherNodeTypes} from "./utilities"
-import {getBlockNodes} from "./parserHelper"
+import type {HtmlNode} from "../index"
+import { getBlockNodes, validListChild, getInnerMostOpenContainer, getValidOpenedAncestor, closeNode, checkIfPartOfOtherNodeTypes} from "./treeConstructUtils"
 
 function getHeaderNodeObj(line: string, lastOpenedNode: HtmlNode): HtmlNode {
 	let headerDetails = line.match(/(\s*)(#+)\s/) as RegExpMatchArray;
@@ -157,12 +156,14 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 	return lastOpenedNode;
 }
 
-export default function parse(textStream: string, rootNode: HtmlNode) {
+export default function generateBlockNodesTree(textStream: string) {
+	let rootNode:HtmlNode = {parentNode: null as any, nodeName: "main", indentLevel: 0, closed: false, children: []};
 	let lastOpenedNode = rootNode;
 	const lines = textStream.split('\n');
 
 	for (let line of lines) {
 		lastOpenedNode = parseLine(line, lastOpenedNode);
 	}
-	return rootNode; // hold: https://github.com/nodejs/node.git
+
+	return rootNode;
 }
