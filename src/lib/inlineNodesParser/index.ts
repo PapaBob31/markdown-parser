@@ -180,26 +180,6 @@ function generateLinkedList(text: string) {
 			}else {
 				currNode = addOrUpdateExistingNode("text content", "&lt;", currNode);
 			}
-			// let htmlTagEndPos = getHtmlTagEndPos(i, text);
-			// if (htmlTagEndPos > -1) {
-			// 	currNode = addOrUpdateExistingNode("raw html", text.slice(i, htmlTagEndPos + 1), currNode)
-			// 	i = htmlTagEndPos + 1;
-			// 	continue;
-			// }
-			// let autoLinkStr = getAutoLinkStr(i, text);
-			// if (autoLinkStr) {
-			// 	let rawHtml = `<a href="${autoLinkStr}">${autoLinkStr}</a>`;
-			// 	currNode = addOrUpdateExistingNode("raw html", rawHtml, currNode)
-			// 	i += autoLinkStr.length-1; // 1 is subtracted since it's zero based
-			// 	continue;
-			// }
-			// let matchedPattern = text.slice(i).match(/<!--(?!(?:>|->))[^]*-->/)
-			// if (matchedPattern) {
-			// 	currNode = addOrUpdateExistingNode("raw html", matchedPattern[0], currNode);
-			// 	i += matchedPattern[0].length;
-			// 	continue;
-			// }
-			// currNode = addOrUpdateExistingNode("text content", "&lt;", currNode);
 		}else if (text[i] === '`') {
 			const [codeSpan, syntaxEnd] = processPossibleCodeSpan(i, text);
 			if (codeSpan) {
@@ -212,16 +192,9 @@ function generateLinkedList(text: string) {
 			currNode = addOrUpdateExistingNode("link marker start", text[i], currNode);
 		}else if (text[i] === ']') {
 			currNode = addOrUpdateExistingNode("link marker end", text[i], currNode);
-		}else if (text[i] === '*') {
-			currNode = addOrUpdateExistingNode("star delimiter", text[i], currNode);
-			if (i<text.length-1 && text[i+1] !== '*'){
-				setAsLeftOrRightFlanking(currNode, text[i+1]);
-			}else if (i === text.length-1) setAsLeftOrRightFlanking(currNode, ' ');
-		}else if (text[i] === '_') {
-			currNode = addOrUpdateExistingNode("underscore delimiter", text[i], currNode);
-			if (i<text.length-1 && text[i+1] !== '_'){
-				setAsLeftOrRightFlanking(currNode, text[i+1]);
-			}else if (i === text.length-1) setAsLeftOrRightFlanking(currNode, ' ');
+		}else if (text[i] === '*' || text[i] === '_') {
+			currNode = addOrUpdateExistingNode("pot delimiter run", text[i], currNode);
+			setAsLeftOrRightFlanking(currNode, text, i);
 		}else {
 			currNode = addOrUpdateExistingNode("text content", text[i], currNode);
 			charIsEscaped = false // incase

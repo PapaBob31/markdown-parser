@@ -1,22 +1,56 @@
 import type { Node } from "./index"
 import { PUNCTUATIONS } from "./index"
 
-export function setAsLeftOrRightFlanking(delimiterNode: Node, nextChar: string) {
-	let nextCharIsPunc = PUNCTUATIONS.includes(nextChar);
-	// since new lines should be treated as whitespace
-	let prevChar = delimiterNode.prev ? delimiterNode.prev.content[delimiterNode.prev.content.length-1] : ' ';
-	let prevCharIsPunc = PUNCTUATIONS.includes(prevChar);
+export function setAsLeftOrRightFlanking(currentNode: Node, textStream: string, charIndex: number) {
+	const currentChar = textStream[charIndex];
+	const prevChar = currentNode.prev ? currentNode.prev.content[currentNode.prev.content.length-1] : ' ';
+	const nextChar = charIndex < textStream.length-1 ? textStream[charIndex+1] : null;
 
-	if (!(/\s/).test(nextChar) && !nextCharIsPunc) {
-		delimiterNode.type = "left flanking " + delimiterNode.type;
-	}else if (nextCharIsPunc && (prevCharIsPunc || (/\s/).test(prevChar))) {
-		delimiterNode.type = "left flanking " + delimiterNode.type;
-	}else if (!(/\s/).test(prevChar) && !prevCharIsPunc) {
-		delimiterNode.type = "right flanking " + delimiterNode.type;
-	}else if (prevCharIsPunc && (nextCharIsPunc || (/\s/).test(nextChar))) {
-		delimiterNode.type = "right flanking " + delimiterNode.type;
+	const nextCharIsPunc = PUNCTUATIONS.includes(nextChar);
+	const prevCharIsPunc = PUNCTUATIONS.includes(prevChar);
+
+	if (!nextChar || nextChar !== currentChar) {
+		if (!(/\s/).test(nextChar) && !nextCharIsPunc) {
+			currentNode.type = "lf delimiter run"; // left flanking delimiter run
+		}else if (nextCharIsPunc && (prevCharIsPunc || (/\s/).test(prevChar))) {
+			currentNode.type = "lf delimiter run";
+		}
+
+		if (!(/\s/).test(prevChar) && !prevCharIsPunc) {
+
+			if (currentNode.type === "lf delimiter run")
+				currentNode.type = "bf delimiter run" // both left and right flanking delimiter run
+			else currentNode.type = "rf delimiter run";
+
+		}else if (prevCharIsPunc && (nextCharIsPunc || (/\s/).test(nextChar))) {
+
+			if (currentNode.type === "lf delimiter run")
+				currentNode.type = "bf delimiter run"
+			else currentNode.type = "rf delimiter run"; // right flanking delimiter run
+
+		}
+
+		if (currentNode.type === "pot delimiter run") {
+			currentNode.type = "text content"
+		}
 	}
 }
+/** BASIC RULES
+ * single * can open emphasis only if it's lf
+ * single _ can open emphasis if it's lf and preceeded by whitespace or punctuation
+ * single * can close emphasis only if it's rf
+ * single _ can close emphasis if it's rf and followed by whitespace or punctuation
+ * same rules apply to the double versions
+
+ * PARSING STRATEGY
+ * Iterate through the linked list looking for delimiter runs
+ * that can close shi (using the conditions under BASIC RULES)
+ * If any is found, traverse back up to find any opener
+ * close any opener that's not the same type with the closer i.e different char delimiters
+ * `a delimiter that can both open and close cannot form emphasis if the sum of the lengths of
+ * the delimiter runs containing the opening and closing delimiters is a multiple of 3 unless 
+ * both lengths are multiples of 3.` so skip it when you can
+ */
 
 // transform node content into raw em|strong tag html
 function transformNodes(opener: Node, closer: Node): Node{
@@ -62,47 +96,84 @@ function transformNodes(opener: Node, closer: Node): Node{
 	}
 }
 
-function uselessAllMarkersBetween(startNode: Node, targetNode: Node) {
-	let currentNode = startNode.next;
+
+
+function getNearestEmphasisOpener(node: Node){
+	let currentNode = node.prev;
+	let uselessNodes = [];
 	while (true) {
-		if (!currentNode || currentNode === targetNode) {
-			break;
-		}else if (currentNode.type === startNode.type) {
-			currentNode.type = "text content";
+		if (!currentNode) 
+			return null;
+		if ((node.content[0] !== currentNode.content[0])){
+			currentNode = currentNode.prev;
+			continue;
 		}
-		currentNode = currentNode.next;
+		if (canOpenEmphasis(currentNode) && !specialBfCase(currentNode, currentNode)) {
+			uselessNodes.forEach(node => {node.type = "text content"});
+			return currentNode
+		}else {
+			uselessNodes.push(currentNode);
+		}
+		currentNode = currentNode.prev;
 	}
 }
 
-function findClosingNode(openingNode: Node) {
-	let currentNode = openingNode.next;
-	while (true) {
-		if (!currentNode) break;
-		if ((currentNode.content[0] === openingNode.content[0]) && 
-			currentNode.type.startsWith("right flanking")) {
-			uselessAllMarkersBetween(openingNode, currentNode as Node);
-			return currentNode;
+
+function specialBfCase(node1: Node, node2: Node) {
+	if (node1.type === "bf delimiter run" || node2.type === "bf delimiter run") {
+		if ((node1.content.length + node2.content.length)%3 !== 0) {
+			return false
+		}else if (node1.content.length%3 === 0 && node2.content.length%3 === 0){
+			return true
 		}
-		currentNode = currentNode.next;
 	}
-	return null
+	return false
 }
 
-
-export default function processEmphasisNodes(head: Node) { // TODO: process nodes that are both right and left flanking as well as '_' marker special cases
+export default function processEmphasisNodes(head: Node) {
 	let currentNode = head;
 	let openers = [];
 	while (true) {
-		if (currentNode.type.startsWith("left flanking")) {
-			openers.push(currentNode);
+		if (canCloseEmphasis(currentNode)) {
+			const opener = getNearestEmphasisOpener(currentNode);
+			if (!opener) {
+				currentNode.closed = true; // should it be closing or changing of type?
+			}else {
+				transformNodes(opener, currentNode)
+			}
 		}
-		currentNode = currentNode.next as Node;
-		if (!currentNode) break;
+		if (!currentNode.next) break;
+		currentNode = currentNode.next;
 	}
-	for (let i=openers.length-1; i>=0; i--) {
-		let closingNode = findClosingNode(openers[i]);
-		if (closingNode) {
-			transformNodes(openers[i], closingNode)
+}
+
+function canOpenEmphasis(node: Node) {
+	if (node.type === "bf delimiter run") {
+		return true;
+	}else if (node.type === "lf delimiter run") {
+		let prevChar = node.prev ? node.prev.content[0] : "";
+
+		if (node.content === '*') {
+			return true;
+		}else if (!prevChar || PUNCTUATIONS.includes(prevChar) || (/\s/).test(prevChar)) {
+			return true;
 		}
 	}
+	return false;
+}
+
+
+function canCloseEmphasis(node: Node) {
+	if (node.type === "bf delimiter run") {
+		return true;
+	}else if (node.type === "rf delimiter run") {
+		let nextChar = node.next ? node.next.content[0] : "";
+
+		if (node.content === '*') {
+			return true;
+		}else if (!nextChar || PUNCTUATIONS.includes(nextChar) || (/\s/).test(nextChar)) {
+			return true;
+		}
+	}
+	return false;
 }
