@@ -83,6 +83,11 @@ me too [easy oh](threadgently.com 'tdg')
 ***This* text is for testing *em* and __strong__ ***_elements_*** generation. 
 They are indicated by surrounding the target string with _*_ and *_* respectively**
 
+**(**foo) __foo, __bar__, baz__
+
+**Gomphocarpus (*Gomphocarpus physocarpus*, syn.
+*Asclepias physocarpa*)** a**"foo"**
+
 
 <!-- this content should be ommitted -->[ty](/url)
 

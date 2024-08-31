@@ -52,51 +52,49 @@ export function setAsLeftOrRightFlanking(currentNode: Node, textStream: string, 
  * both lengths are multiples of 3.` so skip it when you can
  */
 
-// transform node content into raw em|strong tag html
-function transformNodes(opener: Node, closer: Node): Node{
-	let newNodeName = ""
-	if (closer.content.length >= 2 && opener.content.length >= 2) {
-		if (closer.content.length % 2 === 0) {
-			newNodeName = "strong";
-		}else {
-			newNodeName = "em"
-		}
-	}else if (opener.content.length === 1 || closer.content.length === 1) {
-		newNodeName = "em";
+function generateRawHtml(node: Node, newContent: string) {
+	let markersReplaced = 0;
+	if (newContent === "<em>" || newContent === "</em>") {
+		markersReplaced = 1;
+	}else if (newContent === "<strong>" || newContent === "</strong>") {
+		markersReplaced = 2;
 	}
 
-	if (opener.content.length <= 2) {
-		opener.content = opener.content.length === 1 ? "<em>" : "<strong>"
-		opener.type = "raw html";
-	}else {
-		let newNode:Node = {type: "raw html", closed: true, content: `<${newNodeName}>`, next: opener.next, prev: opener};
-		opener.next = newNode;
+	if (node.content.length === 1 || (node.content.length === 2 && (["<strong>", "</strong>"]).includes(newContent))) {
+		node.content = newContent;
+		node.type = "raw html";
+		return
 	}
 
-	if (closer.content.length <= 2) {
-		closer.content = closer.content.length === 1 ? "</em>" : "</strong>"
-		opener.type = "raw html";
-	}else {
-		let newNode = {type: "raw html", closed: true, content: `</${newNodeName}>`, next: closer, prev: closer.prev};
-		closer.prev = newNode;
-	}
-
-	if (opener.type === "raw html" || closer.type === "raw html") {
-		return;
-	}
-
-	if (newNodeName === "em") {
-		opener.content = opener.content.slice(0, opener.content.length-1)
-		closer.content = closer.content.slice(1);
-		transformNodes(opener, closer);
-	}else {
-		opener.content = opener.content.slice(0, opener.content.length-2)
-		closer.content = closer.content.slice(2);
-		transformNodes(opener, closer);
+	if (newContent === "</em>" || newContent == "</strong>") {
+		node.content = node.content.slice(0, markersReplaced);
+		let newNode = {type: "raw html", closed: true, content: newContent, next: node, prev: node.prev};
+		node.prev.next = newNode; 
+		node.prev = newNode
+	}else if (newContent === "<em>" || newContent == "<strong>") {
+		node.content = node.content.slice(0, node.content.length-markersReplaced);
+		let newNode = {type: "raw html", closed: true, content: newContent, next: node.next, prev: node};
+		node.next.prev = newNode; 
+		node.next = newNode
 	}
 }
 
-
+// transform node content into raw em|strong tag html
+function transformNodes(opener: Node, closer: Node): Node{
+	if (closer.content.length === 1 || opener.content.length === 1) {
+		generateRawHtml(opener, "<em>");
+		generateRawHtml(closer, "</em>");
+		return
+	}else if (closer.content.length === 2 || opener.content.length === 2) {
+		generateRawHtml(opener, "<strong>");
+		generateRawHtml(closer, "</strong>");
+		return;
+	}else {
+		generateRawHtml(opener, "<strong>");
+		generateRawHtml(closer, "</strong>");
+		transformNodes(opener, closer);
+	}
+}
 
 function getNearestEmphasisOpener(node: Node){
 	let currentNode = node.prev;
@@ -104,14 +102,10 @@ function getNearestEmphasisOpener(node: Node){
 	while (true) {
 		if (!currentNode) 
 			return null;
-		if ((node.content[0] !== currentNode.content[0])){
-			currentNode = currentNode.prev;
-			continue;
-		}
-		if (canOpenEmphasis(currentNode) && !specialBfCase(currentNode, currentNode)) {
+		if (node.content[0] === currentNode.content[0] && canOpenEmphasis(currentNode) && !specialBfCase(currentNode, currentNode)) {
 			uselessNodes.forEach(node => {node.type = "text content"});
 			return currentNode
-		}else {
+		}else if (["lf delimiter run", "bf delimiter run", "bf delimiter run"].includes(currentNode.type)) {
 			uselessNodes.push(currentNode);
 		}
 		currentNode = currentNode.prev;
@@ -137,7 +131,7 @@ export default function processEmphasisNodes(head: Node) {
 		if (canCloseEmphasis(currentNode)) {
 			const opener = getNearestEmphasisOpener(currentNode);
 			if (!opener) {
-				currentNode.closed = true; // should it be closing or changing of type?
+				currentNode.type = "text content";
 			}else {
 				transformNodes(opener, currentNode)
 			}
