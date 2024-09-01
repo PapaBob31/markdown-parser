@@ -47,9 +47,6 @@ export function setAsLeftOrRightFlanking(currentNode: Node, textStream: string, 
  * that can close shi (using the conditions under BASIC RULES)
  * If any is found, traverse back up to find any opener
  * close any opener that's not the same type with the closer i.e different char delimiters
- * `a delimiter that can both open and close cannot form emphasis if the sum of the lengths of
- * the delimiter runs containing the opening and closing delimiters is a multiple of 3 unless 
- * both lengths are multiples of 3.` so skip it when you can
  */
 
 function generateRawHtml(node: Node, newContent: string) {
@@ -67,7 +64,7 @@ function generateRawHtml(node: Node, newContent: string) {
 	}
 
 	if (newContent === "</em>" || newContent == "</strong>") {
-		node.content = node.content.slice(0, markersReplaced);
+		node.content = node.content.slice(markersReplaced);
 		let newNode = {type: "raw html", closed: true, content: newContent, next: node, prev: node.prev};
 		node.prev.next = newNode; 
 		node.prev = newNode
@@ -102,17 +99,22 @@ function getNearestEmphasisOpener(node: Node){
 	while (true) {
 		if (!currentNode) 
 			return null;
-		if (node.content[0] === currentNode.content[0] && canOpenEmphasis(currentNode) && !specialBfCase(currentNode, currentNode)) {
+		currentNode.prev.content === "foo-" && console.log(currentNode.content)
+		if (node.content[0] === currentNode.content[0] && canOpenEmphasis(currentNode) && !specialBfCase(node, currentNode)) {
 			uselessNodes.forEach(node => {node.type = "text content"});
 			return currentNode
-		}else if (["lf delimiter run", "bf delimiter run", "bf delimiter run"].includes(currentNode.type)) {
+		}else if (["lf delimiter run", "rf delimiter run", "bf delimiter run"].includes(currentNode.type)) {
 			uselessNodes.push(currentNode);
 		}
 		currentNode = currentNode.prev;
 	}
 }
 
-
+/**
+ * `a delimiter that can both open and close cannot form emphasis if the sum of the lengths of
+ * the delimiter runs containing the opening and closing delimiters is a multiple of 3 unless 
+ * both lengths are multiples of 3.` so skip it when you can
+*/
 function specialBfCase(node1: Node, node2: Node) {
 	if (node1.type === "bf delimiter run" || node2.type === "bf delimiter run") {
 		if ((node1.content.length + node2.content.length)%3 !== 0) {
@@ -145,9 +147,9 @@ function canOpenEmphasis(node: Node) {
 	if (node.type === "bf delimiter run") {
 		return true;
 	}else if (node.type === "lf delimiter run") {
-		let prevChar = node.prev ? node.prev.content[0] : "";
+		let prevChar = node.prev ? node.prev.content[node.prev.content.length-1] : "";
 
-		if (node.content === '*') {
+		if (node.content[0] === '*') {
 			return true;
 		}else if (!prevChar || PUNCTUATIONS.includes(prevChar) || (/\s/).test(prevChar)) {
 			return true;
@@ -163,7 +165,7 @@ function canCloseEmphasis(node: Node) {
 	}else if (node.type === "rf delimiter run") {
 		let nextChar = node.next ? node.next.content[0] : "";
 
-		if (node.content === '*') {
+		if (node.content[0] === '*') {
 			return true;
 		}else if (!nextChar || PUNCTUATIONS.includes(nextChar) || (/\s/).test(nextChar)) {
 			return true;
