@@ -27,7 +27,7 @@ export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode|null {
 		if (lastChildNode && ["ul", "ol"].includes(lastChildNode.nodeName)){
 			return getInnerMostOpenContainer(lastChildNode);
 		}
-		return node;
+		return lastChildNode;
 	}// are the first 2 condition checks even necessary, ul and ol should always have children na abi?
 	else if (node.nodeName === "ul" || node.nodeName === "ol" || node.nodeName === "main") { 
 		if (!node.children[node.children.length - 1]) {
@@ -39,33 +39,30 @@ export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode|null {
 
 // closes an opened node and return it's parent
 export function closeNode(lastOpenedNode: HtmlNode) {
-	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode);
-	if (!lastOpenedContainer) {
-		lastOpenedContainer = lastOpenedNode;
-	}
-	if (lastOpenedContainer.nodeName === "blockquote") { // closing a blockquote closes all nested shi
-		lastOpenedContainer.closed = true;
+	if (["blockquote", "html block", "paragraph"].includes(lastOpenedNode.nodeName)) {
+		lastOpenedNode.closed = true;
+		return lastOpenedNode.parentNode
 	}else {
+		let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode);
+		if (!lastOpenedContainer) {
+			lastOpenedContainer = lastOpenedNode
+		}
 		let lastOpenedChild = lastOpenedContainer.children[lastOpenedContainer.children.length - 1]
 		if (!lastOpenedChild) {
 			return lastOpenedNode;
-		}else if (lastOpenedChild.nodeName === "paragraph" || lastOpenedChild.nodeName === "html block") {
-			lastOpenedChild.closed = true;
 		}else if (lastOpenedChild.nodeName === "li" && lastOpenedChild.children.length === 0) { // blank lines shouldn't be nested inside list items twice
 			lastOpenedNode = lastOpenedNode.parentNode.parentNode; // Don't want to stop at the ordered/unorderd list parent
+		}else {
+			closeNode(lastOpenedChild);
 		}
 	}
-	if (lastOpenedNode.closed) { // blockquotes
-		return lastOpenedNode.parentNode
-	}else return lastOpenedNode;
+	return lastOpenedNode;
 }
 
 export function checkIfPartOfOtherNodeTypes(lastOpenedNode: HtmlNode, markerPos: number):string {
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
 	if (lastChild && lastChild.nodeName === "fenced code" && !lastChild.closed) {
 		return "fenced code"
-	}else if (lastChild && lastChild.nodeName === "html block" && !lastChild.closed) {
-		return "html block"
 	}else if (markerPos - (lastOpenedNode.indentLevel as number) >= 4) {
 		return "indented code block"
 	}

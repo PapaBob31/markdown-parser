@@ -50,14 +50,14 @@ function addIndentedCodeBlockContent(lastOpenedNode: HtmlNode, line: string) {
 	}
 }
 
-function addHtmlBlockContent(lastOpenedNode: HtmlNode, line: string) {
-	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length-1];
-	if (!lastChild || lastChild.nodeName !== "html block" || lastChild.closed) {
-		lastOpenedNode.children.push(
-			{parentNode: lastOpenedNode, nodeName: "html block", closed: false, textContent: line, children: []}
-		)
-	}else lastChild.textContent += '\n' + line;
-}
+// function addHtmlBlockContent(htmlB: HtmlNode, line: string) {
+// 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length-1];
+// 	if (!lastChild || lastChild.nodeName !== "html block" || lastChild.closed) {
+// 		lastOpenedNode.children.push(
+// 			{parentNode: lastOpenedNode, nodeName: "html block", closed: false, textContent: line, children: []}
+// 		)
+// 	}else lastChild.textContent += '\n' + line;
+// }
 
 function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, markerPos: number) {
 	let parentNodeName = ""; // list parent node name as in ordered or unordered
@@ -96,8 +96,12 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 		return closeNode(lastOpenedNode);
 	}
 
+	if (lastOpenedNode.nodeName === "html block") {
+		lastOpenedNode.textContent += '\n' + line;
+		return lastOpenedNode;
+	}
+
 	let [nodeName, markerPos] = getBlockNodes(line);
-	!lastOpenedNode && console.log(line);
 	if (lastOpenedNode.nodeName === "li" && nodeName !== "plain text") {
 		lastOpenedNode = getValidOpenedAncestor(lastOpenedNode, markerPos);
 	}else if (lastOpenedNode.nodeName === "blockquote" && nodeName !== "plain text" && nodeName !== "blockquote") {
@@ -150,9 +154,11 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 	}else if (nodeName === "indented code block") {
 		addIndentedCodeBlockContent(lastOpenedNode, line)
 	}else if (nodeName === "html block") {
-		addHtmlBlockContent(lastOpenedNode, line);
+		lastOpenedNode.children.push(
+			{parentNode: lastOpenedNode, nodeName: "html block", closed: false, textContent: line, children: []}
+		)
+		lastOpenedNode = lastOpenedNode.children[lastOpenedNode.children.length-1]
 	}
-
 	return lastOpenedNode;
 }
 
