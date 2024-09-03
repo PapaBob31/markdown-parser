@@ -4,12 +4,12 @@ import { PUNCTUATIONS } from "./index"
 export function setAsLeftOrRightFlanking(currentNode: Node, textStream: string, charIndex: number) {
 	const currentChar = textStream[charIndex];
 	const prevChar = currentNode.prev ? currentNode.prev.content[currentNode.prev.content.length-1] : ' ';
-	const nextChar = charIndex < textStream.length-1 ? textStream[charIndex+1] : null;
+	const nextChar = charIndex < textStream.length-1 ? textStream[charIndex+1] : ' ';
 
 	const nextCharIsPunc = PUNCTUATIONS.includes(nextChar);
 	const prevCharIsPunc = PUNCTUATIONS.includes(prevChar);
 
-	if (!nextChar || nextChar !== currentChar) {
+	if (nextChar !== currentChar) {
 		if (!(/\s/).test(nextChar) && !nextCharIsPunc) {
 			currentNode.type = "lf delimiter run"; // left flanking delimiter run
 		}else if (nextCharIsPunc && (prevCharIsPunc || (/\s/).test(prevChar))) {
@@ -99,7 +99,6 @@ function getNearestEmphasisOpener(node: Node){
 	while (true) {
 		if (!currentNode) 
 			return null;
-		currentNode.prev.content === "foo-" && console.log(currentNode.content)
 		if (node.content[0] === currentNode.content[0] && canOpenEmphasis(currentNode) && !specialBfCase(node, currentNode)) {
 			uselessNodes.forEach(node => {node.type = "text content"});
 			return currentNode

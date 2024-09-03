@@ -135,7 +135,7 @@ function processAngleBracketMarker(text: string, bracketPos: number, currentNode
 	let matchedPattern = text.slice(bracketPos).match(/<!--(?!(?:>|->))[^]*-->/)
 	if (matchedPattern) {
 		currentNode = addOrUpdateExistingNode("raw html", matchedPattern[0], currentNode);
-		return [currentNode, matchedPattern[0].length]
+		return [currentNode, matchedPattern[0].length-1]
 	}
 	return [];
 }
