@@ -56,6 +56,10 @@ export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 	return refs;
 }
 
+function formattedString() {
+
+}
+
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);
@@ -65,9 +69,12 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 	if (rootNode.nodeName === "html block") {
 		text = `${whiteSpace}${rootNode.textContent}\n`
 	}else if (rootNode.nodeName === "paragraph") {
-		text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : ""// TODO: Don't nest inside paragraphs if paragraph is only comment
+		text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : ""// TODO: Don't nest inside paragraphs if content is only comment
+	}else if ((/h[1-6]/).test(rootNode.nodeName)) {
+		const tag = rootNode.nodeName;
+		text = `${whiteSpace}<${tag}>${rootNode.textContent}</${tag}>\n`
 	}else if (rootNode.nodeName === "fenced code" || rootNode.nodeName === "indented code block") {
-		text = `${whiteSpace}<pre class=${rootNode.infoString || ""}>\n${whiteSpace+'  '}<code>${rootNode.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
+		text = `${whiteSpace}<pre class="${rootNode.infoString || ""}">\n${whiteSpace+'  '}<code>${rootNode.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
 	}else if (["hr"].includes(rootNode.nodeName)) {
 		text = `${whiteSpace}<${rootNode.nodeName}>\n`
 	}else {
@@ -75,16 +82,15 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 			text = `${whiteSpace}<${rootNode.nodeName} start="${rootNode.startNo}">\n`	
 		}else text = `${whiteSpace}<${rootNode.nodeName}>\n`;
 
-		if (rootNode.nodeName === "li" && rootNode.children.length === 1) {
+		if (rootNode.children.length === 1) {
 			let onlyChild = rootNode.children[rootNode.children.length-1];
-			if (onlyChild.nodeName === "paragraph" && !(onlyChild.textContent as string).includes('\n')) {
-				text += onlyChild.textContent;
-			}else text += `${generateHtmlFromTree(onlyChild, indentLevel+2, linkRefs)}`;
+			text += `${generateHtmlFromTree(onlyChild, indentLevel+2, linkRefs)}`;
 		}else if (rootNode.children.length >= 1){
 			for (const childNode of rootNode.children) {
 				text += `${generateHtmlFromTree(childNode, indentLevel+2, linkRefs)}`;
 			}
-		}else if (!rootNode.children.length) text += rootNode.textContent;
+		}else if (rootNode.textContent)
+			text += `${whiteSpace + '  '}${rootNode.textContent}`;
 		text += `${whiteSpace}</${rootNode.nodeName}>\n`
 	}
 	return text;
