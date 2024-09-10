@@ -159,6 +159,7 @@ function getEscapedForm(char: string): string {
 	}
 }
 
+// TODO: maybe implement hard line break
 function generateLinkedList(text: string) {
 	const head:Node = {type: "", closed: false, content: "", next: null, prev: null}
 	let currNode = head;

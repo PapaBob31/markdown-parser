@@ -60,6 +60,7 @@ function formattedString() {
 
 }
 
+// TODO: don't wrap tight lists paragraphs with p tags, process backslash escapes 
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);

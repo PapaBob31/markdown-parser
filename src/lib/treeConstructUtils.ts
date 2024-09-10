@@ -25,15 +25,13 @@ export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode{
 export function closeNode(lastOpenedNode: HtmlNode) {
 	const targets = ["paragraph", "html block", "blockquote"]
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
-	if (!lastChild || lastChild.closed) {
-		return
+	if (!lastChild || (lastChild.nodeName === "html block" && lastChild.infoString !== "6") || lastChild.closed) {
+		return false
 	}else if (targets.includes(lastChild.nodeName)) {
-		lastChild.closed = true // every nested node should get closed too
+		lastChild.closed = true // this implicitly closes every nested node too
+		return true;
 	}else {
 		closeNode(lastChild)
-	}
-	if (lastOpenedNode.nodeName === "li" && lastOpenedNode.children.length === 0) { // TODO: blank lines shouldn't be nested inside list items twice
-		lastOpenedNode = lastOpenedNode.parentNode.parentNode; // Don't want to stop at the ordered/unorderd list parent
 	}
 }
 
@@ -63,11 +61,14 @@ function lineIsHorizontalRule(line: string) {
 	return false
 }
 
+
+// TODO: refactor to prevent algorithm from looking for markers twice
 export function getBlockNodes(line: string): [string, number] {
 	let nodeName;
-	let markerPos = line.slice(0,4).indexOf('>');
+	let markerPos:number;
 
-	if (markerPos > -1) {
+	if ((/^\s*>/).test(line)) {
+		markerPos = line.indexOf('>');
 		nodeName = "blockquote"
 	}else if ((/^\s*#{1,6}\s/).test(line)) {
 		markerPos = line.indexOf('#')
@@ -78,7 +79,7 @@ export function getBlockNodes(line: string): [string, number] {
 	}else if (lineIsHorizontalRule(line)){ // hr
 		nodeName = "hr";
 		markerPos = line.search(/\S/)
-	}else if ((markerPos = line.search(/<\/?(?:\w|\d)./)) !== -1) {
+	}else if ((/^\s*</).test(line)) {
 		nodeName = "html block"; // possibly
 	}else {
 		let listMarkerDetails = (/^(\s*)(\d{1,9}(?:\.|\)))(\s+)/).exec(line) || (/^(\s*)(-|\+|\*)(\s+)/).exec(line);
