@@ -76,10 +76,6 @@ function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: n
 	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
 	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block"]	
 
-	if (markerPos - (lastOpenedNode.indentLevel as number) >= 4 && !multilineLeafBlocks.includes(lastOpenedContainer.nodeName)){
-		nodeName = "indented code block";
-	}
-
 	let htmlBlockType = "";
 	if (lastOpenedContainer.nodeName !== "html block" && nodeName === "html block"){
 		htmlBlockType = getHtmlBlockType(line)
@@ -89,7 +85,7 @@ function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: n
 	}
 	
 
-	if (nodeName === "fenced code") {
+	if (nodeName === "fenced code" || lastOpenedContainer.nodeName === "fenced code") {
 		addFencedCodeContent(lastOpenedNode, line)	
 	}else if (!multilineLeafBlocks.includes(lastOpenedContainer.nodeName)){
 		addLeafBlocksContent(lastOpenedContainer, nodeName, line, htmlBlockType)
@@ -124,6 +120,7 @@ function addFencedCodeContent(lastOpenedNode: HtmlNode, line: string){
 	}
 }
 
+// TODO: thoroughly examint the indentlevel set to avoid off by one errors
 function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, markerPos: number) {
 	let parentNodeName = ""; // list parent node name as in ordered or unordered
 	if (nodeName === "ol-li") {
@@ -148,6 +145,7 @@ function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, m
 
 	let openedNestedNode:HtmlNode = parseLine(line.slice(markerPos + markerWidth), lastOpenedNode);
 	lastOpenedNode.indentLevel = markerPos + markerWidth; // actual indent level to be used for nested nodes
+	line.startsWith(" - ") && console.log("DEBUG: ", lastOpenedNode.indentLevel, line)
 	if (lastOpenedNode !== openedNestedNode) {
 		lastOpenedNode = openedNestedNode;
 	}
@@ -175,6 +173,7 @@ function getInnerMostOpenBlockQuote(node:HtmlNode):HtmlNode|null {
 // TODO: backslash escapes, proper tab to spaces conversion, escape dangerous html
 // Also handle markers that seems to be indented too far but they are just nested under a list item
 function parseLine(line: string, lastOpenedNode: HtmlNode) {
+	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
 	if (line.search(/\S/) === -1) {
 		if (lastOpenedNode.nodeName === "li" && lastOpenedNode.indentLevel !== 0 && lastOpenedNode.children.length === 0) {
 			// List item starts with more than one nested blank line. close it
@@ -182,23 +181,37 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 			lastOpenedNode = getValidOpenedAncestor(lastOpenedNode.parentNode, lastOpenedNode.indentLevel);
 		}else {
 			let aNodeWasClosed = closeNode(lastOpenedNode);
-			if (aNodeWasClosed) {
-				return lastOpenedNode
+			// if (aNodeWasClosed) {
+			// 	return lastOpenedNode
+			// }
+			
+			if (!["html block", "fenced code", "indented code block"].includes(lastOpenedContainer.nodeName)){
+				return lastOpenedNode;
 			}
+			console.log("should be unreachable")
 		}
 	}
 
 	let [nodeName, markerPos] = getBlockNodes(line);
 
-	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
+	// TODO: fix getInnerMostOpenContainer bug
 	if (nodeName !== "plain text" || lastOpenedContainer.nodeName !== "paragraph") {
 		// to allow for paragraph continuation lines
 		lastOpenedNode = getValidOpenedAncestor(lastOpenedNode, markerPos);
+		lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
 	}
 
-	lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
+	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block"];
+	if (markerPos - lastOpenedNode.indentLevel > 3) {
+		if (!multilineLeafBlocks.includes(lastOpenedContainer.nodeName)) {
+			nodeName = "indented code block";
+		}else {
+			nodeName = "plain text";
+		}
+	}
+
 	if (["html block", "fenced code"].includes(lastOpenedContainer.nodeName)) {
-		continueLeafBlocks(lastOpenedNode, line, markerPos, nodeName);
+		continueLeafBlocks(lastOpenedNode, line, markerPos, "plain text");
 	}else if (!["ol-li", "ul-li", "blockquote"].includes(nodeName)) {
 		continueLeafBlocks(lastOpenedNode, line, markerPos, nodeName);
 	}else if (nodeName === "blockquote") {
