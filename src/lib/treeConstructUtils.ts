@@ -10,15 +10,23 @@ export function getValidOpenedAncestor(node: HtmlNode, indentLevel: number): Htm
 	}
 }
 
+
+// Returns the inner most open leaf block of a container block or the container block itself
 export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode{
+	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block"];
 	let lastChildNode = node.children[node.children.length - 1];
-	if (lastChildNode && !lastChildNode.closed && ["ul", "ol", "blockquote", "li"].includes(lastChildNode.nodeName)){
-		return getInnerMostOpenContainer(lastChildNode);
-	}else if (lastChildNode && !lastChildNode.closed) {
+	if (!lastChildNode) {
+		return node
+	}else if (!lastChildNode.closed && !multilineLeafBlocks.includes(lastChildNode.nodeName)) {
+		let potLeafBlock = getInnerMostOpenContainer(lastChildNode);
+		if (!multilineLeafBlocks.includes(potLeafBlock.nodeName)) {
+			return node
+		}
+		return potLeafBlock
+	}else if (!lastChildNode.closed) {
 		return lastChildNode;
-	}else {
-		return node;
 	}
+	return node;
 }
 
 // closes an opened node and return it's parent
@@ -81,6 +89,7 @@ export function getBlockNodes(line: string): [string, number] {
 		markerPos = line.search(/\S/)
 	}else if ((/^\s*</).test(line)) {
 		nodeName = "html block"; // possibly
+		markerPos = line.indexOf('<');
 	}else {
 		let listMarkerDetails = (/^(\s*)(\d{1,9}(?:\.|\)))(\s+)/).exec(line) || (/^(\s*)(-|\+|\*)(\s+)/).exec(line);
 		if (listMarkerDetails) {
