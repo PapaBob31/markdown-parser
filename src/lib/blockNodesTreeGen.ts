@@ -50,8 +50,12 @@ function detectEndOfHtmlBlock(blockType: string, line: string) {
 
 function getHtmlBlockType(line: string) {
 	let newNode: HtmlNode;
-	let htmlPatterns = line.match(/\s*(<!--)(?!(?:>|->))/) || line.match(/<([^<\s>]+)(?:\s|>|\/(?=>))?/);
+	let htmlPatterns = line.match(/\s*(<!--)(?!(?:>|->))/) || line.match(/<([^<\s>][^]*)/); // need better regex
+	let escapeDangerousHtml = true;
+	let dangerousHtml = ["title", "textarea", "style", "xmp", "iframe", "noembed", "noframes", "script", "plaintext"]
 	if (!htmlPatterns) {
+		return null
+	}else if (escapeDangerousHtml && dangerousHtml.includes(htmlPatterns[1])) {
 		return null
 	}
 	if (htmlPatterns[1] === "<!--") {
@@ -59,11 +63,11 @@ function getHtmlBlockType(line: string) {
 	}else {
 		if (htmlPatterns[1].slice(0, 2) === "<?") {
 			return "2"
-		}else if (htmlPatterns[1].slice(0, 11) === "<![CDATA[.") {
+		}else if (htmlPatterns[1].slice(0, 8) === "![CDATA[") {
 			return "3"
-		}else if (htmlPatterns[1].slice(0, 2) === "<!") {
+		}else if (htmlPatterns[1].slice(0, 2) === "!") {
 			return "4"
-		}else if (["script", "pre", "style"].includes(htmlPatterns[1])) {
+		}else if (["script", "pre", "style"].includes(htmlPatterns[1].toLowerCase())) {
 			return "5"
 		}else {
 			return "6"
@@ -78,7 +82,7 @@ function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: n
 
 	let htmlBlockType = "";
 	if (lastOpenedContainer.nodeName !== "html block" && nodeName === "html block"){
-		htmlBlockType = getHtmlBlockType(line)
+		htmlBlockType = getHtmlBlockType(line.slice(markerPos))
 		if (!htmlBlockType) {
 			nodeName = "plain text";
 		}
@@ -145,7 +149,6 @@ function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, m
 
 	let openedNestedNode:HtmlNode = parseLine(line.slice(markerPos + markerWidth), lastOpenedNode);
 	lastOpenedNode.indentLevel = markerPos + markerWidth; // actual indent level to be used for nested nodes
-	line.startsWith(" - ") && console.log("DEBUG: ", lastOpenedNode.indentLevel, line)
 	if (lastOpenedNode !== openedNestedNode) {
 		lastOpenedNode = openedNestedNode;
 	}
@@ -173,7 +176,6 @@ function getInnerMostOpenBlockQuote(node:HtmlNode):HtmlNode|null {
 // TODO: backslash escapes, proper tab to spaces conversion, escape dangerous html
 // Also handle markers that seems to be indented too far but they are just nested under a list item
 function parseLine(line: string, lastOpenedNode: HtmlNode) {
-	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
 	if (line.search(/\S/) === -1) {
 		if (lastOpenedNode.nodeName === "li" && lastOpenedNode.indentLevel !== 0 && lastOpenedNode.children.length === 0) {
 			// List item starts with more than one nested blank line. close it
@@ -181,20 +183,15 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 			lastOpenedNode = getValidOpenedAncestor(lastOpenedNode.parentNode, lastOpenedNode.indentLevel);
 		}else {
 			let aNodeWasClosed = closeNode(lastOpenedNode);
-			// if (aNodeWasClosed) {
-			// 	return lastOpenedNode
-			// }
-			
-			if (!["html block", "fenced code", "indented code block"].includes(lastOpenedContainer.nodeName)){
-				return lastOpenedNode;
+			if (aNodeWasClosed) {
+				return lastOpenedNode
 			}
-			console.log("should be unreachable")
 		}
 	}
 
 	let [nodeName, markerPos] = getBlockNodes(line);
 
-	// TODO: fix getInnerMostOpenContainer bug
+	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
 	if (nodeName !== "plain text" || lastOpenedContainer.nodeName !== "paragraph") {
 		// to allow for paragraph continuation lines
 		lastOpenedNode = getValidOpenedAncestor(lastOpenedNode, markerPos);

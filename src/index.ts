@@ -15,7 +15,8 @@ export interface HtmlNode {
 	startNo?: string;
 }
 
-export default function parse(textStream: string) {
+// TODO: add flag to optionally escape dangerous html
+export default function parse(textStream: string, escapeDangerousHtml: boolean) {
 	const root = generateBlockNodesTree(textStream);
 	const linkRefs = traverseTreeToGetLinkRefs(root);
 	const generatedHtml = generateHtmlFromTree(root, 0, linkRefs)
@@ -43,6 +44,20 @@ _Blockquote_
 And so is this line but by virtue of paragraph continuation
 >> - Nested unordered list item
 >   *****
+<div>
+# blah
+
+<nothing>
+\`\`\`js
+let fencedCode = true
+console.log("Inside a fenced code block")
+\`\`\`
+</nothing>
+\`\`\`js
+let fencedCode = true
+console.log("Inside a fenced code block")
+\`\`\`
+
 \`\`\`js
 let fencedCode = true
 console.log("Inside a fenced code block")
@@ -83,7 +98,7 @@ They ought to be on the same line [link text](google.com "google's website")(bla
     1. How far can you even nest lists    
            > This blockquote will not work
 
-<script>
+<![CDATA[
 <div>
 html block without an actual delimiter
 *which is why u can't be empahasized text*
@@ -113,10 +128,15 @@ foo- __a __(bar)__
 
 .>wrong na
 
+]]>
+
 <!-- this content should be ommitted -->[ty](/url)
-</script>
+<Script>
+	2*3*4
+	alert("weak ass site")</SCRIPT>
 who dey close am abeg \\<
 
+    <!--
     and now for my final trick
     I don't know the programming language but 
     this feels like a lot of syntax errors
@@ -144,8 +164,10 @@ qw
 [
 collapsedLink
 ]: /dest "I am a collapsed link"
+
+
 `;
 
 const fd = openSync("./output.html", "w");
-writeSync(fd, parse(sampleText));
+writeSync(fd, parse(sampleText, true));
 closeSync(fd);
