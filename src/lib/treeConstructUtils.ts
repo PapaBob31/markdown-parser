@@ -33,7 +33,7 @@ export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode{
 export function closeNode(lastOpenedNode: HtmlNode) {
 	const targets = ["paragraph", "html block", "blockquote"]
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
-	if (!lastChild || (lastChild.nodeName === "html block" && lastChild.infoString !== "6") || lastChild.closed) {
+	if (!lastChild || (lastChild.nodeName === "html block" && !["6", "7"].includes(lastChild.infoString)) || lastChild.closed) {
 		return false
 	}else if (targets.includes(lastChild.nodeName)) {
 		lastChild.closed = true // this implicitly closes every nested node too

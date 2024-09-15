@@ -1,5 +1,6 @@
 import type {HtmlNode} from "../index"
 import { getBlockNodes, getInnerMostOpenContainer, getValidOpenedAncestor, closeNode, checkIfPartOfOtherNodeTypes} from "./treeConstructUtils"
+import {getHtmlTagEndPos} from "./inlineNodesParser"
 
 function getHeaderNodeObj(line: string, lastOpenedNode: HtmlNode): HtmlNode {
 	let headerDetails = line.match(/(\s*)(#+)\s/) as RegExpMatchArray;
@@ -39,7 +40,7 @@ function detectEndOfHtmlBlock(blockType: string, line: string) {
 		case "2":
 			return line.includes("?>")
 		case "5": // script, pre and style tags
-			return (/<(?:\/script>)|(?:\/pre>)|(?:\/style>)/).test(line);
+			return (/<(?:\/script>)|(?:\/pre>)|(?:\/style>)/i).test(line);
 		case "3": // CDATA
 			return line.includes("]]>")
 		case "4": // declarartion types e.g <!DOCTYPE html>
@@ -50,9 +51,16 @@ function detectEndOfHtmlBlock(blockType: string, line: string) {
 
 function getHtmlBlockType(line: string) {
 	let newNode: HtmlNode;
-	let htmlPatterns = line.match(/\s*(<!--)(?!(?:>|->))/) || line.match(/<([^<\s>][^]*)/); // need better regex
+	let htmlPatterns = line.match(/\s*(<!--)(?!(?:>|->))/) || line.match(/<([^<\s>][^\s>]*)/);
 	let escapeDangerousHtml = true;
 	let dangerousHtml = ["title", "textarea", "style", "xmp", "iframe", "noembed", "noframes", "script", "plaintext"]
+
+	let type6Tags = ["address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", 
+					"center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", 
+					"figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", 
+					"h6", "head", "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu", 
+					"menuitem", "nav", "noframes", "ol", "optgroup", "option", "p", "param", "section", "source", 
+					"summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul",]
 	if (!htmlPatterns) {
 		return null
 	}else if (escapeDangerousHtml && dangerousHtml.includes(htmlPatterns[1])) {
@@ -69,9 +77,11 @@ function getHtmlBlockType(line: string) {
 			return "4"
 		}else if (["script", "pre", "style"].includes(htmlPatterns[1].toLowerCase())) {
 			return "5"
-		}else {
+		}else if (type6Tags.includes(htmlPatterns[1].toLowerCase())) {
 			return "6"
-		}
+		}else if ( getHtmlTagEndPos(line.indexOf('<'), line) !== -1) {
+			return "7"
+		}else return null
 	}
 }
 
