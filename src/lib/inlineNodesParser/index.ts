@@ -12,59 +12,88 @@ export interface Node {
 	prev: Node|null;
 }
 
-export function getAutoLinkStr(startIndex: number, text: string) {
-	let matchedPattern = text.slice(startIndex).match(/<[a-zA-Z]{2,32}:\S*>/)
-	if (!matchedPattern) {
-		return "";
+// validates an array containing the parts of an html tag in order according to the html spec
+function isValidHtmlTag(components: string[]) {
+	let prevComponentType = "";
+	if ((/^<\w+$/).test(components[0])) {
+		prevComponentType = "html tag"
+	}else {
+		return false
 	}
-	return matchedPattern[0];
+
+	for (let i=1; i<components.length; i++) {
+		if (prevComponentType === "attr name" && components[i] === '=') {
+			prevComponentType = "value assignment"
+		}else if (["attr name", "html tag"].includes(prevComponentType) && !(/['"<>=/]/).test(components[i])) {
+			prevComponentType = "attr name"
+		}else if (prevComponentType === "value assignment" && (/(?:^'.+'$)|(?:^".+"$)|(?:^[^'`"<>=]+$)/).test(components[i])) {
+			prevComponentType = "value"
+		}else if (prevComponentType === "value" && !(/['"<>=/]/).test(components[i])) {
+			prevComponentType = "attr name"
+		}else if (i !== components.length-1 || !['>', '/>'].includes(components[i])){
+			return false
+		}
+	}
+	return true
 }
 
-// gets the end index of an html tag
-// Perhaps, It could be done better with the kmp or boyer-moore algorithm if only I knew how to implement them
-export function getHtmlTagEndPos(tagStartIndex: number, str: string): number {
-	let currTokenType = "";
-	let lastToken = ""
-	let attrValueFirstChar = ""; // HTML attribute value first character
-	for (let i=tagStartIndex+1; i<str.length; i++) {
-		if ((i==tagStartIndex+1) && !(/[a-zA-Z]/).test(str[i])) { // An ASCII alphabet must start an html tag
-			return -1
-		}else {
-			currTokenType = "tag name"
-		}
+export function getHtmlTagEndPos(startIndex: number, str: string) {
+	const htmlComponents: string[] = []
+	let currentComponent = "";
+	let currentComponentType = "tag"
+	let tagEndPos = -1;
+	const closingTagPattern = str.slice(startIndex).match(/^<\/\w+\s*>/);
 
-		if ((currTokenType === "" || currTokenType === "white space") && str[i] === '>') {
-			return i;
-		}
+	if (closingTagPattern) {
+		return startIndex + closingTagPattern[0].length - 1;
+	}else if (!(/[a-zA-Z]/).test(str[startIndex+1])) { // An ASCII alphabet must start an html tag as per gfm spec
+		return -1;
+	}
 
-		if (currTokenType === "attr value" && ('"\'').includes(attrValueFirstChar)) { // html attribute quoted value
-			if (str[i] === attrValueFirstChar && ( (i+1 === str.length) || !(" />").includes(str[i+1])) ) {
-				// syntax violates html syntax spec which states quoted attribute values must be seperated from a new attribute by whitespace
-				return -1;
-			}else currTokenType = "";
-		}
-
-		if ((/\s/).test(str[i]) && currTokenType !== "white space") {
-			lastToken = currTokenType;
-			currTokenType = "white space";			
-		}else if (!(/\s/).test(str[i]) && currTokenType === "white space") {
-			if (str[i] === "/") {
-				currTokenType = "solidus"
-			}else if (lastToken === "tag name" || lastToken === "attr name") {
-				if ( ("<>\"'=").includes(str[i]) ) {
-					return -1;
-				}else currTokenType = "attr name"
-			}else if (lastToken === "attr name" && str[i] === '=') {
-				currTokenType = "value specifier"
-				continue; // prevents lastToken from becoming a null string
-			}else if (lastToken === "value specifier") {
-				currTokenType = "attr value"
+	for (let i=startIndex; i<str.length; i++) {
+		if (currentComponent && ['"', "'"].includes(currentComponent[0])) {
+			let lastIndex = currentComponent.length - 1;
+			if (currentComponent.length === 1 || currentComponent[0] !== currentComponent[lastIndex]) {
+				currentComponent += str[i];
+				continue;
 			}
-			lastToken = "";
 		}
+
+		let charIsWhiteSpace = (/\s/).test(str[i]);
+		if (charIsWhiteSpace && currentComponent) {
+			htmlComponents.push(currentComponent);
+			currentComponent = ""
+		}else if (str[i] === '=' && currentComponent){
+			htmlComponents.push(currentComponent);
+			currentComponent = ""
+		}else if (str[i] === '>') {
+			if (!currentComponent) {
+				htmlComponents.push(str[i]);
+			}else if (currentComponent === '/') {
+				htmlComponents.push(currentComponent+str[i]);
+			}else {
+				htmlComponents.push(currentComponent, str[i]);
+			}
+			tagEndPos = i;
+			break;
+		}else if (currentComponent === '=') {
+			htmlComponents.push(currentComponent);
+			currentComponent = ""
+		}else if (currentComponent && ['"', "'"].includes(currentComponent[0])) {
+			htmlComponents.push(currentComponent); // execution can't reach here unless quoted value has already been closed
+		}
+
+		if (!charIsWhiteSpace) {
+			currentComponent += str[i];
+		}
+		
 	}
-	return -1;
+
+	if (tagEndPos !== -1 && isValidHtmlTag(htmlComponents)) {
+		return tagEndPos
+	}else return -1
 }
+
 
 
 function processPossibleCodeSpan(startIndex: number, textStream: string): [string, number] {
@@ -120,17 +149,25 @@ function addOrUpdateExistingNode(nodeType: string, newContent: string, currentNo
 	return currentNode;
 }
 
+function getAutoLinkStr(startIndex: number, text: string) {
+	let matchedPattern = text.slice(startIndex).match(/<([a-zA-Z][\w+.-]{1,32}:\S*)>/)
+	if (!matchedPattern) {
+		return "";
+	}
+	return matchedPattern[1];
+}
+
 function processAngleBracketMarker(text: string, bracketPos: number, currentNode: Node) {
 	let htmlTagEndPos = getHtmlTagEndPos(bracketPos, text);
 	if (htmlTagEndPos > -1) {
 		currentNode = addOrUpdateExistingNode("raw html", text.slice(bracketPos, htmlTagEndPos + 1), currentNode)
 		return [currentNode, htmlTagEndPos+1]
 	}
-	let autoLinkStr = getAutoLinkStr(bracketPos, text);
-	if (autoLinkStr) {
-		let rawHtml = `<a href="${autoLinkStr}">${autoLinkStr}</a>`;
+	let url = getAutoLinkStr(bracketPos, text);
+	if (url) {
+		let rawHtml = `<a href="${url}">${url}</a>`;
 		currentNode = addOrUpdateExistingNode("raw html", rawHtml, currentNode)
-		return [currentNode, autoLinkStr.length-1] // 1 is subtracted since it's zero based
+		return [currentNode, bracketPos+url.length+1] // zero based addition ( + the 2 angle brackets acting as boundary for the autolink)
 	}
 	let matchedPattern = text.slice(bracketPos).match(/<!--(?!(?:>|->))[^]*-->/)
 	if (matchedPattern) {
