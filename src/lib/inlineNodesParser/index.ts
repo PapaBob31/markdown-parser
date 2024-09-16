@@ -37,7 +37,7 @@ function isValidHtmlTag(components: string[]) {
 	return true
 }
 
-export function getHtmlTagEndPos(startIndex: number, str: string) {
+export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNames: string[]) {
 	const htmlComponents: string[] = []
 	let currentComponent = "";
 	let currentComponentType = "tag"
@@ -89,9 +89,12 @@ export function getHtmlTagEndPos(startIndex: number, str: string) {
 		
 	}
 
-	if (tagEndPos !== -1 && isValidHtmlTag(htmlComponents)) {
-		return tagEndPos
-	}else return -1
+	let tagName = htmlComponents[0].slice(1).toLowerCase();
+	if (tagEndPos === -1 || forbiddenTagNames.includes(tagName) || !isValidHtmlTag(htmlComponents)){
+		return -1
+	}else {
+		return tagEndPos;
+	}
 }
 
 
@@ -157,8 +160,8 @@ function getAutoLinkStr(startIndex: number, text: string) {
 	return matchedPattern[1];
 }
 
-function processAngleBracketMarker(text: string, bracketPos: number, currentNode: Node) {
-	let htmlTagEndPos = getHtmlTagEndPos(bracketPos, text);
+function processAngleBracketMarker(text: string, bracketPos: number, currentNode: Node, forbiddenTagNames: string[]) {
+	let htmlTagEndPos = getHtmlTagEndPos(bracketPos, text, forbiddenTagNames);
 	if (htmlTagEndPos > -1) {
 		currentNode = addOrUpdateExistingNode("raw html", text.slice(bracketPos, htmlTagEndPos + 1), currentNode)
 		return [currentNode, htmlTagEndPos+1]
@@ -197,7 +200,7 @@ function getEscapedForm(char: string): string {
 }
 
 // TODO: maybe implement hard line break
-function generateLinkedList(text: string) {
+function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 	const head:Node = {type: "", closed: false, content: "", next: null, prev: null}
 	let currNode = head;
 	let charIsEscaped = false;
@@ -211,7 +214,7 @@ function generateLinkedList(text: string) {
 		}else if (text[i] === '\\'){
 			charIsEscaped = true;
 		}else if (text[i] === '<') {
-			const processedChanges = processAngleBracketMarker(text, i, currNode)
+			const processedChanges = processAngleBracketMarker(text, i, currNode, dangerousHtmlTags)
 			if (processedChanges.length !== 0) {
 				currNode = processedChanges[0] as Node;
 				i = processedChanges[1] as number;
@@ -255,8 +258,8 @@ export function convertLinkedListToText(head: Node) {
 	return outputText;
 }
 
-export default function parseInlineNodes(text: string, linkRefs: LinkRef[]): string {
-	let listHead = generateLinkedList(text);
+export default function parseInlineNodes(text: string, linkRefs: LinkRef[], dangerousHtmlTags: string[]): string {
+	let listHead = generateLinkedList(text, dangerousHtmlTags);
 	generateLinkNodes(listHead, linkRefs);
 	generateEmNodes(listHead);
 	return convertLinkedListToText(listHead);

@@ -61,11 +61,11 @@ function formattedString() {
 }
 
 // TODO: don't wrap tight lists paragraphs with p tags, process backslash escapes 
-export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[]):string {
+export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);
 	if (rootNode.nodeName === "paragraph" || (/h[1-6]/).test(rootNode.nodeName)) {
-		rootNode.textContent = parseInlineNodes(rootNode.textContent as string, linkRefs);
+		rootNode.textContent = parseInlineNodes(rootNode.textContent as string, linkRefs, dangerousHtmlTags);
 	}
 	if (rootNode.nodeName === "html block") {
 		text = `${whiteSpace}${rootNode.textContent}\n`
@@ -85,10 +85,10 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 
 		if (rootNode.children.length === 1) {
 			let onlyChild = rootNode.children[rootNode.children.length-1];
-			text += `${generateHtmlFromTree(onlyChild, indentLevel+2, linkRefs)}`;
+			text += `${generateHtmlFromTree(onlyChild, indentLevel+2, linkRefs, dangerousHtmlTags)}`;
 		}else if (rootNode.children.length >= 1){
 			for (const childNode of rootNode.children) {
-				text += `${generateHtmlFromTree(childNode, indentLevel+2, linkRefs)}`;
+				text += `${generateHtmlFromTree(childNode, indentLevel+2, linkRefs, dangerousHtmlTags)}`;
 			}
 		}else if (rootNode.textContent)
 			text += `${whiteSpace + '  '}${rootNode.textContent}`;

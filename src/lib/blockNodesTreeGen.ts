@@ -49,12 +49,10 @@ function detectEndOfHtmlBlock(blockType: string, line: string) {
 	return false;
 }
 
+let dangerousHtmlTags: string[] = []
 function getHtmlBlockType(line: string) {
 	let newNode: HtmlNode;
 	let htmlPatterns = line.match(/\s*(<!--)(?!(?:>|->))/) || line.match(/<([^<\s>][^\s>]*)/);
-	let escapeDangerousHtml = true;
-	let dangerousHtml = ["title", "textarea", "style", "xmp", "iframe", "noembed", "noframes", "script", "plaintext"]
-
 	let type6Tags = ["address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", 
 					"center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", 
 					"figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", 
@@ -63,7 +61,7 @@ function getHtmlBlockType(line: string) {
 					"summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul",]
 	if (!htmlPatterns) {
 		return null
-	}else if (escapeDangerousHtml && dangerousHtml.includes(htmlPatterns[1])) {
+	}else if (dangerousHtmlTags.includes(htmlPatterns[1].toLowerCase())) {
 		return null
 	}
 	if (htmlPatterns[1] === "<!--") {
@@ -79,7 +77,7 @@ function getHtmlBlockType(line: string) {
 			return "5"
 		}else if (type6Tags.includes(htmlPatterns[1].toLowerCase())) {
 			return "6"
-		}else if ( getHtmlTagEndPos(line.indexOf('<'), line) !== -1) {
+		}else if ( getHtmlTagEndPos(line.indexOf('<'), line, dangerousHtmlTags) !== -1) {
 			return "7"
 		}else return null
 	}
@@ -250,10 +248,11 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 	return lastOpenedNode;
 }
 
-export default function generateBlockNodesTree(textStream: string) {
+export default function generateBlockNodesTree(textStream: string, dangerousHtml: string[]) {
 	let rootNode:HtmlNode = {parentNode: null as any, nodeName: "main", indentLevel: 0, closed: false, children: []};
 	let lastOpenedNode = rootNode;
 	const lines = textStream.split('\n');
+	dangerousHtmlTags = dangerousHtml;
 
 	for (let line of lines) {
 		lastOpenedNode = parseLine(line, lastOpenedNode);
