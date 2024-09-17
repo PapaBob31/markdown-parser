@@ -1,5 +1,5 @@
 import type { HtmlNode } from "../index"
-import parseInlineNodes from "./inlineNodesParser"
+import parseInlineNodes, { PUNCTUATIONS, getEscapedForm } from "./inlineNodesParser"
 
 export interface LinkRef {
 	label: string;
@@ -60,12 +60,30 @@ function formattedString() {
 
 }
 
+function escapeSpecialCharacters(text: string) {
+	let i=0;
+	let escapedText = ""
+
+	while (i < text.length){
+		if (PUNCTUATIONS.includes(text[i])) {
+			escapedText += getEscapedForm(text[i]);
+		}else {
+			escapedText += text[i];
+		}
+		i++;
+	}
+
+	return escapedText
+}
+
 // TODO: don't wrap tight lists paragraphs with p tags, process backslash escapes 
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);
 	if (rootNode.nodeName === "paragraph" || (/h[1-6]/).test(rootNode.nodeName)) {
 		rootNode.textContent = parseInlineNodes(rootNode.textContent as string, linkRefs, dangerousHtmlTags);
+	}else if (["indented code block", "fenced code"].includes(rootNode.nodeName)) {
+		rootNode.textContent = escapeSpecialCharacters(rootNode.textContent)
 	}
 	if (rootNode.nodeName === "html block") {
 		text = `${whiteSpace}${rootNode.textContent}\n`
