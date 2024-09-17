@@ -42,14 +42,19 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 	let currentComponent = "";
 	let currentComponentType = "tag"
 	let tagEndPos = -1;
+	let tagName = "";
 	const closingTagPattern = str.slice(startIndex).match(/^<\/\w+\s*>/);
 
 	if (closingTagPattern) {
+		tagName = closingTagPattern[0].slice(1).toLowerCase();
+		// 1st condition: An ASCII alphabet must start an html tag as per gfm spec
+		if (!(/[a-zA-Z]/).test(str[startIndex+1]) || forbiddenTagNames.includes(tagName)) {
+			return -1;
+		}
 		return startIndex + closingTagPattern[0].length - 1;
-	}else if (!(/[a-zA-Z]/).test(str[startIndex+1])) { // An ASCII alphabet must start an html tag as per gfm spec
-		return -1;
 	}
 
+	
 	for (let i=startIndex; i<str.length; i++) {
 		if (currentComponent && ['"', "'"].includes(currentComponent[0])) {
 			let lastIndex = currentComponent.length - 1;
@@ -89,7 +94,7 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 		
 	}
 
-	let tagName = htmlComponents[0].slice(1).toLowerCase();
+	tagName = htmlComponents[0].slice(1).toLowerCase();
 	if (tagEndPos === -1 || forbiddenTagNames.includes(tagName) || !isValidHtmlTag(htmlComponents)){
 		return -1
 	}else {
@@ -180,7 +185,7 @@ function processAngleBracketMarker(text: string, bracketPos: number, currentNode
 	return [];
 }
 
-function getEscapedForm(char: string): string {
+export function getEscapedForm(char: string): string {
 	switch(char) {
 		case "<":
 			return "&lt;"
