@@ -215,11 +215,12 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 			// List item starts with more than one nested blank line. close it
 			lastOpenedNode.closed = true
 			lastOpenedNode = getValidOpenedAncestor(lastOpenedNode.parentNode, lastOpenedNode.indentLevel);
+			return lastOpenedNode;
 		}else {
-			let aNodeWasClosed = closeNode(lastOpenedNode);
-			if (aNodeWasClosed) {
-				return lastOpenedNode
-			}
+			closeNode(lastOpenedNode);
+			let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
+			if (!["html block", "fenced code", "indented code block"].includes(lastOpenedContainer.nodeName))
+				return lastOpenedNode;
 		}
 	}
 
@@ -231,7 +232,7 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 		lastOpenedNode = getValidOpenedAncestor(lastOpenedNode, markerPos);
 		lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
 	}
-
+	
 	if ((nodeName === "ol-li" || nodeName === "ul-li") && lastOpenedContainer.nodeName === "paragraph") {
 		if (!(/^\s*1\./).test(line)) {
 			nodeName = "plain text"
