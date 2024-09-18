@@ -81,6 +81,7 @@ function escapeSpecialCharacters(text: string) {
 	'|' must delimit cells
 	my implementation, my rules
 	|| i.e pipes without any content in between isn't allowed, put something even if it's just whitespace
+	beginning and ending whitespace would be stripped if present
 
 */
 function getRowContents(line: string){
@@ -128,13 +129,20 @@ interface TableData {
 	cellsAlignment: string[];
 }
 
+function stripSpace(text: string) {
+	if (text[0] === text[text.length-1] && text[0] === ' ') {
+		return text.slice(1, text.length-1)
+	}
+	return text
+}
+
 function generateTableHtml(tableData: TableData){
 	let text = "<table>\n<thead>\n<tr>\n"
 
 	for (let i=0; i < tableData.headerCells.length; i++) {
 		const alignment = tableData.cellsAlignment[i]
 		const cell = tableData.headerCells[i]
-		text += `<th${alignment ? ' align='+alignment: ""}>${cell}</th>\n`
+		text += `<th${alignment ? ' align='+alignment: ""}>${stripSpace(cell)}</th>\n`
 	}
 	text += "</tr>\n</thead>\n<tbody>\n"
 
@@ -142,7 +150,7 @@ function generateTableHtml(tableData: TableData){
 		text += "<tr>\n"
 		for (let i=0; i<row.length; i++) {
 			const alignment = tableData.cellsAlignment[i]
-			text += `<td${alignment ? ' align='+alignment: ""}>${row[i]}<td>\n`
+			text += `<td${alignment ? ' align='+alignment: ""}>${stripSpace(row[i])}<td>\n`
 		}
 		if (row.length < tableData.headerCells.length) {
 			text += ("<td></td>\n").repeat(tableData.headerCells.length - row.length)
@@ -183,7 +191,7 @@ function constructTableFrom(text: string) {
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);
-	if (rootNode.nodeName === "paragraph" || (/h[1-6]/).test(rootNode.nodeName)) {
+	if (rootNode.nodeName === "paragraph" || (/h[1-6]/).test(rootNode.nodeName) || rootNode.nodeName === "plain text") {
 		rootNode.textContent = parseInlineNodes(rootNode.textContent as string, linkRefs, dangerousHtmlTags);
 		if ((/h[1-6]/).test(rootNode.nodeName))  {
 			rootNode.textContent = rootNode.textContent.trimLeft();
@@ -193,15 +201,13 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 	}
 	if (rootNode.nodeName === "html block") {
 		text = `${whiteSpace}${rootNode.textContent}\n`
+	}else if (rootNode.nodeName == "plain text") {
+		text = rootNode.textContent ? `${whiteSpace}${rootNode.textContent}\n` : "";// TODO: Don't add if content is only comment
 	}else if (rootNode.nodeName === "paragraph") {
 		let tableHtml = constructTableFrom(rootNode.textContent)
 		if (tableHtml) {
 			text = tableHtml;
-		}else if (rootNode.parentNode.nodeName !== "li" || rootNode.parentNode.parentNode.tight === "false") {
-			text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
-		}else {
-			text = rootNode.textContent ? `${whiteSpace}${rootNode.textContent}\n` : "";
-		}
+		}else text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
 	}else if ((/h[1-6]/).test(rootNode.nodeName)) {
 		const tag = rootNode.nodeName;
 		text = `${whiteSpace}<${tag}>${rootNode.textContent}</${tag}>\n`
