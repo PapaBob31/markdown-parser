@@ -147,7 +147,7 @@ function addOrUpdateExistingNode(nodeType: string, newContent: string, currentNo
 		currentNode.content = newContent;
 	}else if (currentNode.type !== nodeType || nodeType.startsWith("link marker")) {
 		currentNode.next = {type: nodeType, closed: true, content: newContent, next: null, prev: currentNode};
-		currentNode =	currentNode.next; 
+		currentNode = currentNode.next; 
 	}else {
 		currentNode.content += newContent;
 	}
@@ -210,9 +210,16 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 	let currNode = head;
 	let charIsEscaped = false;
 	let i=0;
+	let adjSpaceCharCount = 0; // adjacent space character count
 
 	while (i < text.length){
-		if (charIsEscaped && PUNCTUATIONS.includes(text[i])) {
+		if (text[i] === '\n' && (charIsEscaped || adjSpaceCharCount >= 2) && i !== text.length-1) {
+			if (!charIsEscaped && adjSpaceCharCount >= 2){
+				let contentEnd = currNode.content.length - adjSpaceCharCount;
+				currNode.content = currNode.content.slice(0, contentEnd)
+			}
+			currNode = addOrUpdateExistingNode("raw html", "<br/>", currNode);
+		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i])) {
 			let replacement = getEscapedForm(text[i]);
 			currNode = addOrUpdateExistingNode("text content", replacement, currNode);
 			charIsEscaped = false;
@@ -245,6 +252,9 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 			currNode = addOrUpdateExistingNode("text content", text[i], currNode);
 			charIsEscaped = false // incase
 		}
+		if (text[i] === ' ')
+			adjSpaceCharCount++
+		else adjSpaceCharCount = 0;
 		i++;
 	}
 	return head;
