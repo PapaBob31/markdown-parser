@@ -129,12 +129,12 @@ export default function processEmphasisNodes(head: Node) {
 	let currentNode = head;
 	let openers = [];
 	while (true) {
-		if (canCloseEmphasis(currentNode)) {
+		if (canCloseEmphasis(currentNode)) { 
 			const opener = getNearestEmphasisOpener(currentNode);
-			if (!opener) {
-				currentNode.type = "text content";
-			}else {
+			if (opener) {
 				transformNodes(opener, currentNode)
+			}else if (currentNode.type !== "bf delimiter run"){
+				currentNode.type = "text content";
 			}
 		}
 		if (!currentNode.next) break;
