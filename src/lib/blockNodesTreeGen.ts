@@ -25,7 +25,10 @@ function addLeafBlocksContent(lastOpenedNode: HtmlNode, nodeName: string, line: 
 			newNode.closed = true;
 		}
 	}else if (nodeName === "plain text") {
-		lastOpenedNode.children.push({parentNode: lastOpenedNode, nodeName: "paragraph", closed: false, textContent: line, children: []})
+		if (lastOpenedNode.nodeName !== "li" || (lastOpenedNode.tight && lastOpenedNode.tight === "false"))
+			lastOpenedNode.children.push({parentNode: lastOpenedNode, nodeName: "paragraph", closed: false, textContent: line, children: []});
+		else
+			lastOpenedNode.children.push({parentNode: lastOpenedNode, nodeName: "plain text", closed: false, textContent: line, children: []})
 	}else if (nodeName === "indented code block") {
 		lastOpenedNode.children.push(
 			{parentNode: lastOpenedNode, nodeName: "indented code block", closed: false, textContent: line, children: []}
@@ -86,7 +89,7 @@ function getHtmlBlockType(line: string) {
 // TODO: implementfeature that allows block leaves to interrupt each other correctly
 function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: number, nodeName: string):void {
 	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
-	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block"]	
+	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block", "plain text"]	
 
 	let htmlBlockType = "";
 	if (lastOpenedContainer.nodeName !== "html block" && nodeName === "html block"){
@@ -95,13 +98,12 @@ function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: n
 			nodeName = "plain text";
 		}
 	}
-	
 
 	if (nodeName === "fenced code" || lastOpenedContainer.nodeName === "fenced code") {
 		addFencedCodeContent(lastOpenedNode, line)	
 	}else if (!multilineLeafBlocks.includes(lastOpenedContainer.nodeName)){
 		addLeafBlocksContent(lastOpenedContainer, nodeName, line, htmlBlockType)
-	}else if (lastOpenedContainer.nodeName === "paragraph" && nodeName !== "plain text"){
+	}else if (["paragraph", "plain text"].includes(lastOpenedContainer.nodeName) && nodeName !== "plain text"){
 		addLeafBlocksContent(lastOpenedContainer.parentNode, nodeName, line, htmlBlockType)
 	}else {
 		if (lastOpenedContainer.nodeName === "html block" && lastOpenedContainer.infoString !== "6") {
@@ -168,6 +170,7 @@ function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, m
 		lastOpenedNode.children.push(
 			{parentNode: lastOpenedNode, nodeName: parentNodeName, closed: false, startNo, infoString: markerPattern, tight: "true", children: []}
 		)
+		changeListIfLoose(lastOpenedNode)
 		lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
 	}
 	if (lastChild.tight === "maybe")
@@ -202,11 +205,26 @@ function getInnerMostOpenBlockQuote(node:HtmlNode):HtmlNode|null {
 	return blockQuoteNode;
 }
 
-// TODO: proper tab to spaces conversion, 1 tab -> 4 spaces
-function parseLine(line: string, lastOpenedNode: HtmlNode) {
-	if (lastOpenedNode.nodeName === "li" && lastOpenedNode.children.length > 1)
-		lastOpenedNode.parentNode.tight = "false";
+function changeListIfLoose(listItem: HtmlNode) {
+	if (listItem.nodeName !== "li") {
+		return;
+	}
+	const listNode = listItem.parentNode
+	if ((listNode.tight !== "false" || listNode.children.length <= 1) && listItem.children.length <= 1){
+		return;
+	}
+	for (let listChild of listNode.children) {
+		listChild.children.forEach((childNode) => {
+			if (childNode.nodeName === "plain text") {
+				childNode.nodeName = "paragraph";
+			}
+		})
+	}
+}
 
+
+function parseLine(line: string, lastOpenedNode: HtmlNode) {
+	changeListIfLoose(lastOpenedNode);
 	if (line.search(/\S/) === -1) {
 		if (lastOpenedNode.nodeName === "li" && lastOpenedNode.indentLevel !== 0 && lastOpenedNode.parentNode.tight === "true") {
 			lastOpenedNode.parentNode.tight = "maybe"
@@ -219,15 +237,18 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 		}else {
 			closeNode(lastOpenedNode);
 			let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
-			if (!["html block", "fenced code", "indented code block"].includes(lastOpenedContainer.nodeName))
+			if (!["html block", "fenced code", "indented code block", ].includes(lastOpenedContainer.nodeName))
 				return lastOpenedNode;
 		}
 	}
 
+	line = line.replace(/^\t+/, (match)=>{
+		return (' ').repeat(match.length*4);
+	})
 	let [nodeName, markerPos] = getBlockNodes(line);
 
 	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
-	if (nodeName !== "plain text" || lastOpenedContainer.nodeName !== "paragraph") {
+	if (nodeName !== "plain text" || !["paragraph", "plain text"].includes(lastOpenedContainer.nodeName)) {
 		// to allow for paragraph continuation lines
 		lastOpenedNode = getValidOpenedAncestor(lastOpenedNode, markerPos);
 		lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
@@ -239,7 +260,7 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 		}
 	}
 
-	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block"];
+	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block", "plain text"];
 	if (markerPos - lastOpenedNode.indentLevel > 3) {
 		if (!multilineLeafBlocks.includes(lastOpenedContainer.nodeName)) {
 			nodeName = "indented code block";
