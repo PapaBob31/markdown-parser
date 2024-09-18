@@ -31,7 +31,7 @@ export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode{
 
 // closes an opened node and return it's parent
 export function closeNode(lastOpenedNode: HtmlNode) {
-	const targets = ["paragraph", "html block", "blockquote"]
+	const targets = ["paragraph", "html block", "blockquote", "plain text"]
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
 	if (!lastChild || (lastChild.nodeName === "html block" && !["6", "7"].includes(lastChild.infoString)) || lastChild.closed) {
 		return false
