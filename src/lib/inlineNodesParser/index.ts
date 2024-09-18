@@ -48,7 +48,7 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 	if (closingTagPattern) {
 		tagName = closingTagPattern[0].slice(1).toLowerCase();
 		// 1st condition: An ASCII alphabet must start an html tag as per gfm spec
-		if (!(/[a-zA-Z]/).test(str[startIndex+1]) || forbiddenTagNames.includes(tagName)) {
+		if (!(/[a-zA-Z]/).test(str[startIndex+2]) || forbiddenTagNames.includes(tagName)) {
 			return -1;
 		}
 		return startIndex + closingTagPattern[0].length - 1;
@@ -169,7 +169,7 @@ function processAngleBracketMarker(text: string, bracketPos: number, currentNode
 	let htmlTagEndPos = getHtmlTagEndPos(bracketPos, text, forbiddenTagNames);
 	if (htmlTagEndPos > -1) {
 		currentNode = addOrUpdateExistingNode("raw html", text.slice(bracketPos, htmlTagEndPos + 1), currentNode)
-		return [currentNode, htmlTagEndPos+1]
+		return [currentNode, htmlTagEndPos]
 	}
 	let url = getAutoLinkStr(bracketPos, text);
 	if (url) {
