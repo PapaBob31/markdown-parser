@@ -93,17 +93,37 @@ function transformNodes(opener: Node, closer: Node): Node{
 	}
 }
 
+
+
 function getNearestEmphasisOpener(node: Node){
 	let currentNode = node.prev;
 	let uselessNodes = [];
+	let closingTags: string[] = [];
+	const specialTypes = ["lf delimiter run", "rf delimiter run", "bf delimiter run"];
 	while (true) {
-		if (!currentNode) 
+		if (!currentNode){
 			return null;
-		if (node.content[0] === currentNode.content[0] && canOpenEmphasis(currentNode) && !specialBfCase(node, currentNode)) {
+		}
+
+		if (node.content[0] === currentNode.content[0] && closingTags.length === 0 && 
+			canOpenEmphasis(currentNode) && !specialBfCase(node, currentNode)) {
 			uselessNodes.forEach(node => {node.type = "text content"});
 			return currentNode
-		}else if (["lf delimiter run", "rf delimiter run", "bf delimiter run"].includes(currentNode.type)) {
+		}else if (specialTypes.includes(currentNode.type)) {
 			uselessNodes.push(currentNode);
+		}else if (currentNode.type === "raw html"){
+			let startingChars = currentNode.content.match(/^(<\/?)(\w+)/)
+			let endingChars = currentNode.content.match(/\/?>$/)
+
+			let li = closingTags.length - 1;
+			if (startingChars[1] === '</'){
+				closingTags.push(startingChars[2])
+			}else if ((startingChars[1] === '<' && endingChars[0] !== '/>') && li >= 0 && closingTags[li] === startingChars[2]) {
+				closingTags.pop()
+			}else if (startingChars[1] === '<') {
+				return null
+			}
+	
 		}
 		currentNode = currentNode.prev;
 	}
