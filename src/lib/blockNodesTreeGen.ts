@@ -132,23 +132,40 @@ function addFencedCodeContent(lastOpenedNode: HtmlNode, line: string){
 	}
 }
 
-// TODO: thoroughly examint the indentlevel set to avoid off by one errors
+function getMarkerType(markerString: string) {
+	switch(markerString) {
+		case '+':
+			return "+ marker"
+		case '-':
+			return "- marker"
+		case '*':
+			return "* marker"
+		default:
+			if ((/\d+\./).test(markerString))
+				return "num. marker"
+			else
+				return "num) marker"
+	}
+}
+
+// TODO: thoroughly examine the indentlevel set to avoid off by one errors
 function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, markerPos: number) {
 	let parentNodeName = ""; // list parent node name as in ordered or unordered
 	if (nodeName === "ol-li") {
 		parentNodeName = "ol"
 	}else parentNodeName = "ul"
 
-	let markerWidth;
+	let markerWidth, markerPattern;
 	let listItemPattern = line.match(/(\s*)(\d{1,9}(\.|\)))(\s*)/) || line.match(/(\s*)(\*|\+|-)(\s*)/) as RegExpMatchArray;
 	if (listItemPattern[3].length >= 4) {
 		markerWidth = listItemPattern[2].length + 1;
 	}else markerWidth = listItemPattern[2].length + listItemPattern[3].length;
+	markerPattern = getMarkerType(listItemPattern[2]);
 
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
-	if (!lastChild || lastChild.nodeName !== parentNodeName) {
+	if (!lastChild || lastChild.nodeName !== parentNodeName || lastChild.infoString !== markerPattern) {
 		let startNo = (parentNodeName === "ol" ? listItemPattern[2] : "");
-		lastOpenedNode.children.push({parentNode: lastOpenedNode, nodeName: parentNodeName, closed: false, startNo, children: []})
+		lastOpenedNode.children.push({parentNode: lastOpenedNode, nodeName: parentNodeName, closed: false, startNo, infoString: markerPattern, children: []})
 		lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
 	}
 	// indent level should temporarily be zero for text on the same line as the list marker to prevent wrong indent usage
@@ -181,8 +198,7 @@ function getInnerMostOpenBlockQuote(node:HtmlNode):HtmlNode|null {
 	return blockQuoteNode;
 }
 
-// TODO: backslash escapes, proper tab to spaces conversion, escape dangerous html
-// Also handle markers that seems to be indented too far but they are just nested under a list item
+// TODO: proper tab to spaces conversion, 1 tab -> 4 spaces
 function parseLine(line: string, lastOpenedNode: HtmlNode) {
 	if (line.search(/\S/) === -1) {
 		if (lastOpenedNode.nodeName === "li" && lastOpenedNode.indentLevel !== 0 && lastOpenedNode.children.length === 0) {
@@ -204,6 +220,12 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 		// to allow for paragraph continuation lines
 		lastOpenedNode = getValidOpenedAncestor(lastOpenedNode, markerPos);
 		lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
+	}
+
+	if ((nodeName === "ol-li" || nodeName === "ul-li") && lastOpenedContainer.nodeName === "paragraph") {
+		if (!(/^\s*1\./).test(line)) {
+			nodeName = "plain text"
+		}
 	}
 
 	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block"];
