@@ -165,9 +165,13 @@ function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, m
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
 	if (!lastChild || lastChild.nodeName !== parentNodeName || lastChild.infoString !== markerPattern) {
 		let startNo = (parentNodeName === "ol" ? listItemPattern[2] : "");
-		lastOpenedNode.children.push({parentNode: lastOpenedNode, nodeName: parentNodeName, closed: false, startNo, infoString: markerPattern, children: []})
+		lastOpenedNode.children.push(
+			{parentNode: lastOpenedNode, nodeName: parentNodeName, closed: false, startNo, infoString: markerPattern, tight: "true", children: []}
+		)
 		lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
 	}
+	if (lastChild.tight === "maybe")
+		lastChild.tight = "false";
 	// indent level should temporarily be zero for text on the same line as the list marker to prevent wrong indent usage
 	lastChild.children.push({parentNode: lastChild, nodeName: "li", indentLevel: 0, closed: false, children: []})
 	lastOpenedNode = lastChild.children[lastChild.children.length - 1];
@@ -200,7 +204,13 @@ function getInnerMostOpenBlockQuote(node:HtmlNode):HtmlNode|null {
 
 // TODO: proper tab to spaces conversion, 1 tab -> 4 spaces
 function parseLine(line: string, lastOpenedNode: HtmlNode) {
+	if (lastOpenedNode.nodeName === "li" && lastOpenedNode.children.length > 1)
+		lastOpenedNode.parentNode.tight = "false";
+
 	if (line.search(/\S/) === -1) {
+		if (lastOpenedNode.nodeName === "li" && lastOpenedNode.indentLevel !== 0 && lastOpenedNode.parentNode.tight === "true") {
+			lastOpenedNode.parentNode.tight = "maybe"
+		}
 		if (lastOpenedNode.nodeName === "li" && lastOpenedNode.indentLevel !== 0 && lastOpenedNode.children.length === 0) {
 			// List item starts with more than one nested blank line. close it
 			lastOpenedNode.closed = true

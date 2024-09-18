@@ -76,19 +76,25 @@ function escapeSpecialCharacters(text: string) {
 	return escapedText
 }
 
-// TODO: don't wrap tight lists paragraphs with p tags, process backslash escapes 
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);
 	if (rootNode.nodeName === "paragraph" || (/h[1-6]/).test(rootNode.nodeName)) {
 		rootNode.textContent = parseInlineNodes(rootNode.textContent as string, linkRefs, dangerousHtmlTags);
+		if ((/h[1-6]/).test(rootNode.nodeName))  {
+			rootNode.textContent = rootNode.textContent.trimLeft();
+		}
 	}else if (["indented code block", "fenced code"].includes(rootNode.nodeName)) {
 		rootNode.textContent = escapeSpecialCharacters(rootNode.textContent)
 	}
 	if (rootNode.nodeName === "html block") {
 		text = `${whiteSpace}${rootNode.textContent}\n`
 	}else if (rootNode.nodeName === "paragraph") {
-		text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : ""// TODO: Don't nest inside paragraphs if content is only comment
+		if (rootNode.parentNode.nodeName !== "li" || rootNode.parentNode.parentNode.tight === "false") {
+			text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
+		}else {
+			text = rootNode.textContent ? `${whiteSpace}${rootNode.textContent}\n` : "";
+		}
 	}else if ((/h[1-6]/).test(rootNode.nodeName)) {
 		const tag = rootNode.nodeName;
 		text = `${whiteSpace}<${tag}>${rootNode.textContent}</${tag}>\n`
