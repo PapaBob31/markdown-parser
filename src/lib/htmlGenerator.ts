@@ -76,6 +76,110 @@ function escapeSpecialCharacters(text: string) {
 	return escapedText
 }
 
+
+/*
+	'|' must delimit cells
+	my implementation, my rules
+	|| i.e pipes without any content in between isn't allowed, put something even if it's just whitespace
+
+*/
+function getRowContents(line: string){
+	let cellData = "";
+	let cells = [];
+	let i = 0;
+
+	while (i < line.length) {
+		if (line[i] === '|') {
+			if (cellData) {
+				cells.push(cellData);
+				cellData = "";
+			}else if (cells.length > 0) {
+				cells = [];
+				break;
+			}	
+		}else {
+			cellData += line[i]
+		}
+		i++;
+
+		if (i == line.length-1 && line[i] !== '|') {
+			cells = [];
+		}
+	}
+	return cells
+}
+
+function getCellAlignment(cell: string) {
+	let alignment = null
+	if (cell[0] === ":")
+		alignment = "left";
+
+	if (cell[cell.length-1] === ":" && alignment === "left")
+		alignment = "center"
+	else if (cell[cell.length-1] === ":" && alignment !== "left")
+		alignment = "right";
+
+	return alignment
+}
+
+interface TableData {
+	headerCells: string[];
+	bodyCells: string[][];
+	cellsAlignment: string[];
+}
+
+function generateTableHtml(tableData: TableData){
+	let text = "<table>\n<thead>\n<tr>\n"
+
+	for (let i=0; i < tableData.headerCells.length; i++) {
+		const alignment = tableData.cellsAlignment[i]
+		const cell = tableData.headerCells[i]
+		text += `<th${alignment ? ' align='+alignment: ""}>${cell}</th>\n`
+	}
+	text += "</tr>\n</thead>\n<tbody>\n"
+
+	for (let row of tableData.bodyCells) {
+		text += "<tr>\n"
+		for (let i=0; i<row.length; i++) {
+			const alignment = tableData.cellsAlignment[i]
+			text += `<td${alignment ? ' align='+alignment: ""}>${row[i]}<td>\n`
+		}
+		if (row.length < tableData.headerCells.length) {
+			text += ("<td></td>\n").repeat(tableData.headerCells.length - row.length)
+		}
+		text += "</tr>\n"
+	}
+	text += "</tbody>\n</table>\n"
+	return text
+}
+
+function constructTableFrom(text: string) {
+	const tableData:TableData = {headerCells: [], bodyCells: [], cellsAlignment: []}
+	let tableRows = text.split(/(?:\r\n)|\n|\r/);
+	if (tableRows[0] == text)
+		return "";
+	for (let i=0; i<tableRows.length; i++) {
+		const cells = getRowContents(tableRows[i])
+		if (cells.length === 0) {
+			return "";
+		}
+		if (tableData.headerCells.length === 0) {
+			if (cells.length === 0)
+				return "";
+			tableData.headerCells = [...cells]
+		}else if (tableData.cellsAlignment.length === 0) {
+			if (cells.length === 0 || cells.length !== tableData.headerCells.length)
+				return "";
+			tableData.cellsAlignment = cells.map((cell) => getCellAlignment(cell))
+		}else if (cells.length === 0) {
+			return "";
+		}else {
+			tableData.bodyCells.push(cells);
+		}
+	}
+	return generateTableHtml(tableData);
+}
+
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);
@@ -90,7 +194,10 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 	if (rootNode.nodeName === "html block") {
 		text = `${whiteSpace}${rootNode.textContent}\n`
 	}else if (rootNode.nodeName === "paragraph") {
-		if (rootNode.parentNode.nodeName !== "li" || rootNode.parentNode.parentNode.tight === "false") {
+		let tableHtml = constructTableFrom(rootNode.textContent)
+		if (tableHtml) {
+			text = tableHtml;
+		}else if (rootNode.parentNode.nodeName !== "li" || rootNode.parentNode.parentNode.tight === "false") {
 			text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
 		}else {
 			text = rootNode.textContent ? `${whiteSpace}${rootNode.textContent}\n` : "";
