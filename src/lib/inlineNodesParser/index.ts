@@ -46,7 +46,7 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 	const closingTagPattern = str.slice(startIndex).match(/^<\/\w+\s*>/);
 
 	if (closingTagPattern) {
-		tagName = closingTagPattern[0].slice(1).toLowerCase();
+		tagName = closingTagPattern[0].slice(2, closingTagPattern[0].length-1).toLowerCase();
 		// 1st condition: An ASCII alphabet must start an html tag as per gfm spec
 		if (!(/[a-zA-Z]/).test(str[startIndex+2]) || forbiddenTagNames.includes(tagName)) {
 			return -1;
