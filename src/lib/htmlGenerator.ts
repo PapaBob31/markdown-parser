@@ -136,32 +136,33 @@ function stripSpace(text: string) {
 	return text
 }
 
-function generateTableHtml(tableData: TableData){
-	let text = "<table>\n<thead>\n<tr>\n"
+// TODO: add proper indent to table's output
+function generateTableHtml(tableData: TableData, indentLevel: number){
+	let text = `${' '.repeat(indentLevel)}<table>\n${' '.repeat(indentLevel+2)}<thead>\n<tr>\n`
 
 	for (let i=0; i < tableData.headerCells.length; i++) {
 		const alignment = tableData.cellsAlignment[i]
 		const cell = tableData.headerCells[i]
-		text += `<th${alignment ? ' align='+alignment: ""}>${stripSpace(cell)}</th>\n`
+		text += `${' '.repeat(indentLevel+2)}<th${alignment ? ' align='+alignment: ""}>${stripSpace(cell)}</th>\n`
 	}
-	text += "</tr>\n</thead>\n<tbody>\n"
+	text += `${' '.repeat(indentLevel+2)}</tr>\n</thead>\n<tbody>\n`
 
 	for (let row of tableData.bodyCells) {
-		text += "<tr>\n"
+		text += `${' '.repeat(indentLevel+2)}<tr>\n`
 		for (let i=0; i<row.length; i++) {
 			const alignment = tableData.cellsAlignment[i]
-			text += `<td${alignment ? ' align='+alignment: ""}>${stripSpace(row[i])}<td>\n`
+			text += `${' '.repeat(indentLevel+2)}<td${alignment ? ' align='+alignment: ""}>${stripSpace(row[i])}<td>\n`
 		}
 		if (row.length < tableData.headerCells.length) {
-			text += ("<td></td>\n").repeat(tableData.headerCells.length - row.length)
+			text += (`${' '.repeat(indentLevel+2)}<td></td>\n`).repeat(tableData.headerCells.length - row.length)
 		}
-		text += "</tr>\n"
+		text += `${' '.repeat(indentLevel+2)}</tr>\n`
 	}
-	text += "</tbody>\n</table>\n"
+	text += `${' '.repeat(indentLevel+2)}</tbody>\n${' '.repeat(indentLevel)}</table>\n`
 	return text
 }
 
-function constructTableFrom(text: string) {
+function constructTableFrom(text: string, indentLevel: number) {
 	const tableData:TableData = {headerCells: [], bodyCells: [], cellsAlignment: []}
 	let tableRows = text.split(/(?:\r\n)|\n|\r/);
 	if (tableRows[0] == text)
@@ -185,52 +186,72 @@ function constructTableFrom(text: string) {
 			tableData.bodyCells.push(cells);
 		}
 	}
-	return generateTableHtml(tableData);
+	return generateTableHtml(tableData, indentLevel);
+}
+
+// parse the content of leaf blocks for inline nodes and unescaped html tags
+function parseContent(node: HtmlNode, linkRefs: LinkRef[], dangerousHtmlTags:string[]) {
+	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName) || node.nodeName === "plain text") {
+		node.textContent = parseInlineNodes(node.textContent as string, linkRefs, dangerousHtmlTags);
+		if ((/h[1-6]/).test(node.nodeName))  {
+			node.textContent = node.textContent.trimLeft();
+		}
+	}else if (["indented code block", "fenced code"].includes(node.nodeName)) {
+		node.textContent = escapeSpecialCharacters(node.textContent)
+	}
+}
+
+
+function generateNodeHtml(node: HtmlNode, indentLevel: number) {
+	const whiteSpace = ' '.repeat(indentLevel);
+
+	if (node.nodeName === "html block") {
+		return `${whiteSpace}${node.textContent}\n`
+	}else if (node.nodeName == "plain text") {
+		return node.textContent ? `${whiteSpace}${node.textContent}\n` : "";// TODO: Don't add if content is only comment
+	}else if (node.nodeName === "paragraph") {
+		let tableHtml = constructTableFrom(node.textContent, indentLevel);
+		if (tableHtml) {
+			return tableHtml;
+		}else return node.textContent ? `${whiteSpace}<p>${node.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
+	}else if ((/h[1-6]/).test(node.nodeName)) {
+		const tag = node.nodeName;
+		return `${whiteSpace}<${tag}>${node.textContent}</${tag}>\n`
+	}else if (node.nodeName === "fenced code" || node.nodeName === "indented code block") {
+		return `${whiteSpace}<pre class="${node.infoString || ''}">\n${whiteSpace+'  '}<code>${node.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
+	}else if (["hr"].includes(node.nodeName)) {
+		return `${whiteSpace}<${node.nodeName}>\n`
+	}
 }
 
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);
-	if (rootNode.nodeName === "paragraph" || (/h[1-6]/).test(rootNode.nodeName) || rootNode.nodeName === "plain text") {
-		rootNode.textContent = parseInlineNodes(rootNode.textContent as string, linkRefs, dangerousHtmlTags);
-		if ((/h[1-6]/).test(rootNode.nodeName))  {
-			rootNode.textContent = rootNode.textContent.trimLeft();
-		}
-	}else if (["indented code block", "fenced code"].includes(rootNode.nodeName)) {
-		rootNode.textContent = escapeSpecialCharacters(rootNode.textContent)
-	}
-	if (rootNode.nodeName === "html block") {
-		text = `${whiteSpace}${rootNode.textContent}\n`
-	}else if (rootNode.nodeName == "plain text") {
-		text = rootNode.textContent ? `${whiteSpace}${rootNode.textContent}\n` : "";// TODO: Don't add if content is only comment
-	}else if (rootNode.nodeName === "paragraph") {
-		let tableHtml = constructTableFrom(rootNode.textContent)
-		if (tableHtml) {
-			text = tableHtml;
-		}else text = rootNode.textContent ? `${whiteSpace}<p>${rootNode.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
-	}else if ((/h[1-6]/).test(rootNode.nodeName)) {
-		const tag = rootNode.nodeName;
-		text = `${whiteSpace}<${tag}>${rootNode.textContent}</${tag}>\n`
-	}else if (rootNode.nodeName === "fenced code" || rootNode.nodeName === "indented code block") {
-		text = `${whiteSpace}<pre class="${rootNode.infoString || ""}">\n${whiteSpace+'  '}<code>${rootNode.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
-	}else if (["hr"].includes(rootNode.nodeName)) {
-		text = `${whiteSpace}<${rootNode.nodeName}>\n`
-	}else {
-		if (rootNode.nodeName === "ol") {
-			text = `${whiteSpace}<${rootNode.nodeName} start="${rootNode.startNo}">\n`	
-		}else text = `${whiteSpace}<${rootNode.nodeName}>\n`;
 
-		if (rootNode.children.length === 1) {
-			let onlyChild = rootNode.children[rootNode.children.length-1];
-			text += `${generateHtmlFromTree(onlyChild, indentLevel+2, linkRefs, dangerousHtmlTags)}`;
-		}else if (rootNode.children.length >= 1){
-			for (const childNode of rootNode.children) {
-				text += `${generateHtmlFromTree(childNode, indentLevel+2, linkRefs, dangerousHtmlTags)}`;
-			}
-		}else if (rootNode.textContent)
-			text += `${whiteSpace + '  '}${rootNode.textContent}`;
-		text += `${whiteSpace}</${rootNode.nodeName}>\n`
+	if (rootNode.nodeName === "ol") {
+		text = `${whiteSpace}<${rootNode.nodeName} start="${rootNode.startNo}">\n`	
+	}else if (rootNode.textContent === undefined) {
+		text = `${whiteSpace}<${rootNode.nodeName}>\n`;
 	}
+
+	if (rootNode.textContent === undefined) {
+		if (rootNode.nodeName === "root")
+			text = "";
+		else 
+			indentLevel += 2;
+
+		for (let childNode of rootNode.children) {
+			text += `${generateHtmlFromTree(childNode, indentLevel, linkRefs, dangerousHtmlTags)}`;
+		}
+	}else {
+		parseContent(rootNode, linkRefs, dangerousHtmlTags)
+		text = generateNodeHtml(rootNode, indentLevel);
+	}
+
+	if (rootNode.textContent === undefined && rootNode.nodeName !== "root") {
+		text += `${whiteSpace}</${rootNode.nodeName}>\n`;
+	}
+	
 	return text;
 }
 

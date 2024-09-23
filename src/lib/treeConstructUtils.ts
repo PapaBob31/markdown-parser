@@ -2,7 +2,7 @@ import type {HtmlNode} from "../index"
 
 // get node's ancestor with the same level of indentation
 export function getValidOpenedAncestor(node: HtmlNode, indentLevel: number): HtmlNode {
-	if (node.nodeName === "main" || (node.nodeName === "li" && indentLevel >= (node.indentLevel as number))) {
+	if (node.nodeName === "root" || (node.nodeName === "li" && indentLevel >= (node.indentLevel as number))) {
 		return node;
 	}else {
 		node.closed = true;
@@ -43,6 +43,8 @@ export function closeNode(lastOpenedNode: HtmlNode) {
 	}
 }
 
+/** Checks if a line is part of a fenced or indented code block
+ * @param {markerPos} represents the position of the line's fisrt non-whitespace character **/ 
 export function checkIfPartOfOtherNodeTypes(lastOpenedNode: HtmlNode, markerPos: number):string {
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
 	if (lastChild && lastChild.nodeName === "fenced code" && !lastChild.closed) {
@@ -53,6 +55,7 @@ export function checkIfPartOfOtherNodeTypes(lastOpenedNode: HtmlNode, markerPos:
 	return ""
 }
 
+// Checks if the content of a line represents a 'thematic break' as per gfm spec
 function lineIsHorizontalRule(line: string) {
 	const hrData = line.match(/^\s*(\*|-|_)(\s*\1\s*)*$/);
 	let charCount = 0;
@@ -69,8 +72,7 @@ function lineIsHorizontalRule(line: string) {
 	return false
 }
 
-
-// TODO: refactor to prevent algorithm from looking for markers twice
+// Returns the position and the meaning of special character markers found on a line
 export function getBlockNodes(line: string): [string, number] {
 	let nodeName;
 	let markerPos:number;
@@ -84,7 +86,7 @@ export function getBlockNodes(line: string): [string, number] {
 	}else if ((/^\s*`{3,}[^`]*$/).test(line)) {
 		markerPos = line.indexOf('`');
 		nodeName = "fenced code";
-	}else if (lineIsHorizontalRule(line)){ // hr
+	}else if (lineIsHorizontalRule(line)){
 		nodeName = "hr";
 		markerPos = line.search(/\S/)
 	}else if ((/^\s*</).test(line)) {

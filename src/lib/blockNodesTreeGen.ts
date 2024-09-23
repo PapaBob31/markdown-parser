@@ -8,7 +8,7 @@ function getHeaderNodeObj(line: string, lastOpenedNode: HtmlNode): HtmlNode {
 	let hl = headerDetails[2].length;
 	if (hl > 6)
 		return {parentNode: lastOpenedNode, nodeName: "paragraph", closed: false, textContent: line, children: []};
-	return {parentNode: lastOpenedNode, nodeName: `h${hl}`, closed: true, textContent: line.slice(hl + ph), children: []}
+	return {parentNode: lastOpenedNode, nodeName: `h${hl}`, closed: true, textContent: line.slice(hl + ph).trimLeft(), children: []}
 }
 
 function addLeafBlocksContent(lastOpenedNode: HtmlNode, nodeName: string, line: string, htmlBlockType: string) {
@@ -97,6 +97,8 @@ function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: n
 		if (!htmlBlockType) {
 			nodeName = "plain text";
 		}
+	}else if (nodeName === "indented code block") {
+		line = line.slice(markerPos-3); // remove leading whitespace used to mark the line as part of indented code block
 	}
 
 	if (nodeName === "fenced code" || lastOpenedContainer.nodeName === "fenced code") {
@@ -111,6 +113,8 @@ function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: n
 				lastOpenedContainer.closed = true
 			}
 		}
+		if (lastOpenedContainer.nodeName === "indented code block")
+			line = line.slice(markerPos-3); // remove leading whitespace used to mark the line as part of indented code block
 		lastOpenedContainer.textContent += '\n' + line
 	}
 }
@@ -288,7 +292,7 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 			openedBlockQuote = lastOpenedNode.children[lastOpenedNode.children.length - 1]
 		}
 		let actualIndentLevel = openedBlockQuote.indentLevel
-		openedBlockQuote.nodeName = "main"; // makes every nested node actually believe it's root
+		openedBlockQuote.nodeName = "root"; // makes every nested node actually believe it's root
 		openedBlockQuote.indentLevel = 0; // makes every nested node actually believe it's root
 
 		parseLine(line.slice(markerPos+1), openedBlockQuote);
@@ -303,7 +307,7 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 }
 
 export default function generateBlockNodesTree(textStream: string, dangerousHtml: string[]) {
-	let rootNode:HtmlNode = {parentNode: null as any, nodeName: "main", indentLevel: 0, closed: false, children: []};
+	let rootNode:HtmlNode = {parentNode: null as any, nodeName: "root", indentLevel: 0, closed: false, children: []};
 	let lastOpenedNode = rootNode;
 	const lines = textStream.split('\n');
 	dangerousHtmlTags = dangerousHtml;
