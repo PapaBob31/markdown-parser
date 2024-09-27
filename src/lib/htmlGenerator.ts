@@ -40,7 +40,7 @@ export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 		for (let i=0; i<rootNode.children.length; i++) {
 			let childNode = rootNode.children[i];
 			if (["blockquote", "ul", "ol", "li"].includes(childNode.nodeName)){
-				refs.concat(traverseTreeToGetLinkRefs(childNode));
+				refs = refs.concat(traverseTreeToGetLinkRefs(childNode));
 				continue
 			}
 			if (childNode.nodeName !== "paragraph") {
@@ -56,11 +56,8 @@ export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 	return refs;
 }
 
-function formattedString() {
 
-}
-
-function escapeSpecialCharacters(text: string) {
+export function escapeSpecialCharacters(text: string) {
 	let i=0;
 	let escapedText = ""
 
@@ -189,6 +186,40 @@ function constructTableFrom(text: string, indentLevel: number) {
 	return generateTableHtml(tableData, indentLevel);
 }
 
+export function formsValidCharRef(text: string, index: number) {
+	let ref = ""
+	let validRefs: string[] = ["amp", "copy", "lg", "gt", "lt", "apos", "quot"]; // get the rest from the html spec
+
+	for (let i=index+1; i<text.length; i++) {
+		if ((/\s/).test(text[i])){
+			return false;
+		}else if (text[i] === ';') {
+			break;
+		}else if (i === text.length-1) {
+			ref = "";
+			break;
+		}
+		ref += text[i];
+	}
+	if (validRefs.includes(ref)) {
+		return true;
+	}
+	return false
+}
+
+// Removes invalid html character references
+function removeInvalidCharRef(textStream: string) {
+	let output = ""
+	for (let i=0; i<textStream.length; i++){
+		if (textStream[i] === '&' && !formsValidCharRef(textStream, i)) {
+			output += "&amp;"
+			continue;
+		}
+		output += textStream[i];
+	}
+	return output
+}
+
 // parse the content of leaf blocks for inline nodes and unescaped html tags
 function parseContent(node: HtmlNode, linkRefs: LinkRef[], dangerousHtmlTags:string[]) {
 	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName) || node.nodeName === "plain text") {
@@ -198,6 +229,10 @@ function parseContent(node: HtmlNode, linkRefs: LinkRef[], dangerousHtmlTags:str
 		}
 	}else if (["indented code block", "fenced code"].includes(node.nodeName)) {
 		node.textContent = escapeSpecialCharacters(node.textContent)
+	}
+
+	if (!["indented code block", "fenced code"].includes(node.nodeName) && node.textContent) {
+		node.textContent = removeInvalidCharRef(node.textContent); // maybe implement a regex solution
 	}
 }
 
