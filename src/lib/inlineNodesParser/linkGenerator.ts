@@ -1,223 +1,229 @@
 import type { Node } from "./index"
 import type { LinkRef } from "../htmlGenerator"
+import { escapeSpecialCharacters } from "../htmlGenerator"
+import { getEscapedForm } from "./index"
 
-function getCharTokenType(linkDest: string, linkTitle: string, char: string, currTokenType: string) {
-	if (linkDest && linkTitle && currTokenType === "whitespace" && char !== ')') {
-		return null;
-	}else if (!linkDest && char == '<') {
-		return "opened uri";
-	}else if (!linkDest) {
-		return "uri";
-	}else if (currTokenType === "opened uri" && char === '>') {
-		return "closed uri";
-	}else if (!linkTitle && currTokenType === "whitespace") {
-		if (("\"'(").includes(char)) {
-			return "title"
-		}else return null;
-	}else if (currTokenType === "title" && char === linkTitle[0]) {
-		return "whitespace";
-	}else if (currTokenType === "closed uri") { // uris of form '<content>' should be followed immediately by whitespace
-		return null;
-	}
-	return currTokenType;
-}
 
-// get link attributes and remove nodes containing the link attributes
-function getLinkAttributes(node: Node) {
-	let linkAttributes = {uri: "", title: ""};
-	let currentTokenType = ""
-	let textStream = node.content;
-	if (textStream[0] !== '(') {
-		return null;
-	}
-	let unBalancedParenthesis = 0;
-	let nodesWithLinkAttributes = [node]
-	let i = 0;
-
-	while (true) {
-		let char = textStream[i];
-		// detect whitespaces and the first '(' char after the link text marker which is also a marker.
-		let charIsWhiteSpace = (/\s/).test(char) || (nodesWithLinkAttributes.length === 1 && i === 0);
-		if (charIsWhiteSpace) {
-			if (currentTokenType === "closed uri" || (currentTokenType === "uri" && unBalancedParenthesis === 0))  {
-				currentTokenType = "whitespace"
-			}else if (currentTokenType === "uri") {
-				return null
-			}
-		}else {
-			currentTokenType = getCharTokenType(linkAttributes.uri, linkAttributes.title, char, currentTokenType) as string;
-			if (!currentTokenType) {
-				return null
-			}
-		}
-
-		if (char === '(' && currentTokenType === "uri") {
-			unBalancedParenthesis++;
-		}else if (char === ')' && currentTokenType === "uri" && unBalancedParenthesis > 0) {
-			unBalancedParenthesis--;
-		}else if (char === ')' && (currentTokenType === "whitespace" || currentTokenType === "uri")) {
-			break;
-		}
-
-		if (currentTokenType === "opened uri" || (currentTokenType === "uri" && !charIsWhiteSpace)) {
-			linkAttributes.uri += char;
-		}else if (currentTokenType === "title" && (!linkAttributes.title || linkAttributes.title[0] !== char)) {
-			linkAttributes.title += char;
-		}
-
-		if (i !== textStream.length - 1) {
-			i++;
-			continue;
-		}
-
-		const newNode = nodesWithLinkAttributes[nodesWithLinkAttributes.length-1].next;
-		if (newNode && newNode.type !== "raw html") {
-			nodesWithLinkAttributes.push(newNode);
-			textStream = newNode.content;
-			i = 0;
-		}else if (newNode && newNode.type === "raw html" && !linkAttributes.uri) { // we might have parsed
-			linkAttributes.uri = newNode.content;
-			i = newNode.content.length-1;
-			currentTokenType = "whitespace"
-		}else {
-			return null;
-		}
-	}
-
-	let listLength = nodesWithLinkAttributes.length;
-	if (nodesWithLinkAttributes[listLength-1].content.length !== i+1) {
-		nodesWithLinkAttributes[listLength-1].content = nodesWithLinkAttributes[listLength-1].content.slice(i+1);
-		nodesWithLinkAttributes.pop();
-	}
-
-	if (nodesWithLinkAttributes.length > 0) {
-		(nodesWithLinkAttributes[0].prev as Node).next = nodesWithLinkAttributes[listLength-1].next as Node;
-	}
-	linkAttributes.title = linkAttributes.title ? linkAttributes.title.slice(1) : "";
-	return linkAttributes;
-}
-
-function closeAllLinkMarkersInBetween(startNode: Node, endNode: Node) {
-	let currentNode = startNode.next
-	while (currentNode !== endNode) {
-		(currentNode as Node).closed = true
-		currentNode = (currentNode as Node).next;
-	}
-}
-
-function normalized(str: string) {
-	return str.toLowerCase().replace(/\s+/, ' ').trim();
-}
-
-function getReferenceLinkData(labelStr: string, linkRefs: LinkRef[]) {
-	for (let obj of linkRefs) {
-		if (normalized(obj.label) === normalized(labelStr)) {
-			return {uri: obj.destination, title: obj.title};
-		}
-	}
-	return null;
-}
-
-function getLinkAttributesFromLabel(labelStartNode: Node, linkRefs: LinkRef[]) {
-	if (!labelStartNode.next) {
-		return null
-	}
-	if (labelStartNode.next.type === "link marker end"){ // link structure is in form [link text][]
-		labelStartNode.prev.next = labelStartNode.next.next; // 'deletes' the nodes containing the []
-		return null;
-	}else if (labelStartNode.next.type !== "text content") return null;
-
-	const labelEndNode = labelStartNode.next.next
-	if (labelEndNode && labelEndNode.type === "link marker end") {
-		let refLinkData = getReferenceLinkData(labelStartNode.next.content, linkRefs);
-		if (refLinkData) {
-			labelStartNode.prev.next = labelEndNode.next; // 'deletes' the nodes containing the link label from the linked list
-			return refLinkData
-		}
-	}
-	return null
-}
-
-function getEnclosedText(opener: Node, closer: Node) {
-	let currentNode = opener.next;
+function getEnclosedText(startNode: Node, endNode: Node) {
+	let currentNode = startNode.next;
 	let outputText = "";
 
-	while (currentNode !== closer) {
+	while (currentNode !== endNode) {
 		outputText += currentNode.content;
 		currentNode = currentNode.next;
 	}
 	return outputText;
 }
 
-function getRefLinks(openerNode: Node, linkRefs: LinkRef[]) {
-	let currentNode = openerNode;
-	let unBalancedBracketsNum = 0;
-	while (true){
-		if (currentNode.type === "link marker end") {
-			if (unBalancedBracketsNum === 0) {
-				return null;
-			}
-			unBalancedBracketsNum--;
-			if (unBalancedBracketsNum === 0 && (!currentNode.next || currentNode.next.type === "link marker start")){
-				break;
-			}
-		}else if (currentNode.type === "link marker start") {
-			unBalancedBracketsNum++;
-		}
-		if (!currentNode.next) {
-			break;
-		}
-		currentNode = currentNode.next;
-	}
-	let linkTextBoundary = currentNode;
-	let linkAttributes;
-	if (currentNode.next) {
-		linkAttributes = getLinkAttributesFromLabel(currentNode.next,  linkRefs)
-	}
-	if (!linkAttributes) {
-		// check if it's a shortcut or collapsed link reference
-		linkAttributes = getReferenceLinkData(getEnclosedText(openerNode, currentNode), linkRefs);
-	}
-	return linkAttributes ? [linkTextBoundary, linkAttributes] : null
+function normalized(str: string) {
+	return str.toLowerCase().replace(/\s+/, ' ').trim();
 }
 
-export default function generateLinkNodes(head: Node, linkRefs: LinkRef[]) {
-	let currentNode = head;
-	let openedLinkTextMarkers: Node[] = [];
+
+interface LinkAttributes {
+	uri: string;
+	title: string;
+	endPos: number;
+	attrEndNode: Node;
+}
+
+function getReferenceLinkData(labelStr: string, linkRefs: LinkRef[]): LinkAttributes {
+	for (let obj of linkRefs) {
+		if (normalized(obj.label) === normalized(labelStr)) {
+			return {uri: obj.destination, title: obj.title, endPos: -1, attrEndNode: null};
+		}
+	}
+	return null;
+}
+
+
+function getReferenceLinks(linkText: string, labelStartNode: Node|null, linkRefs: LinkRef[]) {
+	if (!labelStartNode || labelStartNode.type !== "link marker start") {
+		return getReferenceLinkData(linkText, linkRefs);
+	}
+	let currentNode = labelStartNode.next;
+	let labelText = ""
 
 	while (true) {
-		if (currentNode.type === "link marker end" && openedLinkTextMarkers.length === 0) {
-			currentNode.type = "text content";
-			currentNode.closed = true;
-		}else if (currentNode.type === "link marker start" && !currentNode.closed) {
-			openedLinkTextMarkers.push(currentNode)
+		if (!currentNode) {
+			return getReferenceLinkData(linkText, linkRefs);
 		}else if (currentNode.type === "link marker end") {
-			let linkMarkerStart:Node;
-			let linkAttributes = currentNode.next && getLinkAttributes(currentNode.next as Node);
-			if (linkAttributes) {
-				linkMarkerStart = (openedLinkTextMarkers.pop() as Node)
-			}else {
-				let data = getRefLinks(openedLinkTextMarkers[0], linkRefs);
-				if (data) {
-					linkMarkerStart = openedLinkTextMarkers[0];
-					currentNode = data[0] as Node;
-					linkAttributes = data[1] as {uri: string, title: string};
-				}
-			}
-			if (linkAttributes) {
-				linkMarkerStart.closed = true;
-				closeAllLinkMarkersInBetween(linkMarkerStart, currentNode)
-				linkMarkerStart.content = `<a href="${linkAttributes.uri}" title="${linkAttributes.title}">`
-				currentNode.content = "</a>";
-			}
-			openedLinkTextMarkers.forEach(marker => {marker.closed = true});
-			openedLinkTextMarkers = [];
-			currentNode.closed = true;
+			if (!labelText) // possibly a collapsed ref link
+				labelText = linkText;
+			let data = getReferenceLinkData(labelText, linkRefs);
+			if (data){
+				data.attrEndNode = currentNode;
+			}else data = getReferenceLinkData(linkText, linkRefs);
+			return data;
 		}
-		if (!currentNode.next) {
-			break;
+		labelText += currentNode.content;
+		currentNode = currentNode.next;
+	}
+}
+
+function changeToHtml(opener: Node, closer: Node, linkType: string, linkAttributes: LinkAttributes, linkText: string):Node {
+	let nextNode: Node = null;
+
+	if (linkAttributes.endPos > -1) {
+		let startIndex = linkAttributes.endPos+1;
+		linkAttributes.attrEndNode.content = linkAttributes.attrEndNode.content.slice(startIndex); // might be an empty string but doesn't really matter
+	}
+	if (!linkAttributes.attrEndNode) { // shortcut refernece link
+		nextNode = closer.next;
+	}else if (linkAttributes.attrEndNode.type === "link marker end") { // full reference link
+		nextNode = linkAttributes.attrEndNode.next;
+	}else { // normal links
+		nextNode = linkAttributes.attrEndNode
+	}
+
+	if (linkType === "link") {
+		opener.content = `<a href="${linkAttributes.uri}" title="${linkAttributes.title}">`;
+		closer.content = `</a>`
+		closer.next = nextNode
+		if (nextNode)
+			nextNode.prev = closer;
+	}else {
+		opener.content = `<img src="${linkAttributes.uri}" alt="${linkText}" title="${linkAttributes.title}">`;
+		opener.next = nextNode
+		if (nextNode)
+			nextNode.prev = opener;
+	}
+	opener.type = "raw html"
+	closer.type = "raw html"
+	return nextNode
+}
+
+function transformToLinkHtml(openingNode: Node, closingNode: Node, linkRefs: LinkRef[]): Node {
+	let linkAttributes:LinkAttributes;
+	let linkText = getEnclosedText(openingNode, closingNode)
+	let linkType = openingNode.content === "![" ? "img" : "link"
+	if (linkType === "link" && !linkText) {
+		return null;
+	}
+
+	linkAttributes = getLinkAttributes(closingNode.next);
+	if (!linkAttributes) {
+		linkAttributes = getReferenceLinks(linkText, closingNode.next, linkRefs);
+	}
+
+	if (!linkAttributes) {
+		return null;
+	}else {
+		return changeToHtml(openingNode, closingNode, linkType, linkAttributes, linkText);
+	}
+}
+
+export default function generateLinkHtmlNodes(head: Node, linkRefs: LinkRef[]) {
+	let currentNode = head;
+	let openers = [];
+
+	while (currentNode !== null) { // maybe implement breaking when it encounters tag that can't be nested inside link tags
+		if (currentNode.type === "link marker start") {
+			openers.push(currentNode);
+		}else if (currentNode.type === "link marker end") {
+			let nextNode = null;
+			let openingNode: Node;
+			if (openers.length > 0) {
+				openingNode = openers[openers.length-1]
+				nextNode = transformToLinkHtml(openingNode, currentNode, linkRefs);
+			}
+			if (nextNode) {
+				openers.pop()
+				currentNode = nextNode;
+				let openerBefore = openers[openers.length-1]
+				if (!openerBefore || openingNode.content !== '![' || openerBefore.content !== '[') {
+					openers.forEach(node => {node.type = "text content"});
+					openers = [];
+				}
+				continue;				
+			}else {
+				currentNode.type = "text content"
+			}
 		}
 		currentNode = currentNode.next;
 	}
-	return head;
+}
+
+function getOpener(node: Node) {
+	let currentNode = node;
+	while (true) {
+		if (!currentNode || currentNode.type === "inline link html") {
+			return null
+		}else if (currentNode.type === "link start marker") {
+			return currentNode;
+		}
+		currentNode = currentNode.prev
+	}
+}
+
+
+function getLinkAttributes(startNode: Node): LinkAttributes {
+	if (!startNode || startNode.content[0] !== '(') {
+		return null;
+	}
+	let i = 1; // ignore the starting '('
+	let attrs:LinkAttributes = {uri: "", title: "", endPos: 0, attrEndNode: null};
+	let linkComponent = "";
+	let openedBracketsNum = 0;
+	let textStream = startNode.content;
+	let currentNode = startNode;
+
+	while (true) {
+		if (i == textStream.length && !currentNode.next) {
+			return null;
+		}else if (i == textStream.length) {
+			currentNode = currentNode.next
+			textStream = currentNode.content
+			i = 0;
+		}
+
+		let char = textStream[i];
+		if (linkComponent === "uri" && attrs.uri[0] === '<' && !['\n', '<'].includes(char)) {
+			attrs.uri += char;
+			if (char === '>') {
+				linkComponent = "";
+			}
+		}else if (linkComponent === "uri") {
+			return null;
+		}
+		
+		let charIsWhiteSpace = (/\s/).test(char);
+		if (char === ')' && openedBracketsNum === 0 && linkComponent !== "title") {
+ 			attrs.endPos = i;
+ 			attrs.attrEndNode = currentNode;
+ 			attrs.title = escapeSpecialCharacters(attrs.title)
+ 			attrs.uri = escapeSpecialCharacters(attrs.uri)
+ 			return attrs
+ 		}
+
+		if (linkComponent === "url") {
+			if (charIsWhiteSpace && openedBracketsNum !== 0)  {
+				return null;
+			}else if (charIsWhiteSpace) {
+				linkComponent = "";
+			}else {
+				attrs.uri += char;
+			}
+		}else if (linkComponent === "title") {
+			if (attrs.title[0] === char || (attrs.title[0] === '(' && char === ')')) {
+				linkComponent = "";
+				attrs.title = attrs.title.slice(1);
+			}else {
+				attrs.title += char;
+			}
+		}else if (!attrs.uri && !charIsWhiteSpace) {
+			linkComponent = "url"
+			attrs.uri += char;
+		}else if (!attrs.title && ["(", '"', "'"].includes(char)){
+			linkComponent = "title"
+			attrs.title += char;
+		}else if (char === '(' && linkComponent === "url" && attrs.uri[0] !== '<') {
+			openedBracketsNum++;
+		}else if (char === ')' && linkComponent === "url" && attrs.uri[0] !== '<') {
+			openedBracketsNum--;
+		}else if (attrs.uri && !charIsWhiteSpace){ // invalid text after uri
+			return null
+		}
+		i++;
+	}
 }

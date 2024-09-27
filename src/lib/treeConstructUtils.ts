@@ -29,17 +29,20 @@ export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode{
 	return node;
 }
 
-// closes an opened node and return it's parent
-export function closeNode(lastOpenedNode: HtmlNode) {
+// Returns the last opened node at any level of a node's descendants if the opened node
+// can be closed by a blank line or returns the node itself if the node has no child
+export function getFirstOpenChildNode(node: HtmlNode): any {
 	const targets = ["paragraph", "html block", "blockquote", "plain text"]
-	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
-	if (!lastChild || (lastChild.nodeName === "html block" && !["6", "7"].includes(lastChild.infoString)) || lastChild.closed) {
-		return false
+	let lastChild = node.children[node.children.length - 1];
+
+	if (!lastChild || (lastChild && lastChild.closed)) { // return true on first encountered closed child at any nested level
+		return node;
+	}else if (lastChild.nodeName === "html block" && !["6", "7"].includes(lastChild.infoString)) {
+		return null
 	}else if (targets.includes(lastChild.nodeName)) {
-		lastChild.closed = true // this implicitly closes every nested node too
-		return true;
+		return lastChild;
 	}else {
-		closeNode(lastChild)
+		return getFirstOpenChildNode(lastChild)
 	}
 }
 

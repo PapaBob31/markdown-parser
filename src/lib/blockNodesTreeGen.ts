@@ -1,5 +1,5 @@
 import type {HtmlNode} from "../index"
-import { getBlockNodes, getInnerMostOpenContainer, getValidOpenedAncestor, closeNode, checkIfPartOfOtherNodeTypes} from "./treeConstructUtils"
+import { getBlockNodes, getInnerMostOpenContainer, getValidOpenedAncestor, getFirstOpenChildNode, checkIfPartOfOtherNodeTypes} from "./treeConstructUtils"
 import {getHtmlTagEndPos} from "./inlineNodesParser"
 
 function getHeaderNodeObj(line: string, lastOpenedNode: HtmlNode): HtmlNode {
@@ -227,8 +227,7 @@ function changeListIfLoose(listItem: HtmlNode) {
 }
 
 
-function parseLine(line: string, lastOpenedNode: HtmlNode) {
-	changeListIfLoose(lastOpenedNode);
+function processBlankLine(line: string, lastOpenedNode: HtmlNode) {
 	if (line.search(/\S/) === -1) {
 		if (lastOpenedNode.nodeName === "li" && lastOpenedNode.indentLevel !== 0 && lastOpenedNode.parentNode.tight === "true") {
 			lastOpenedNode.parentNode.tight = "maybe"
@@ -239,73 +238,91 @@ function parseLine(line: string, lastOpenedNode: HtmlNode) {
 			lastOpenedNode = getValidOpenedAncestor(lastOpenedNode.parentNode, lastOpenedNode.indentLevel);
 			return lastOpenedNode;
 		}else {
-			closeNode(lastOpenedNode);
-			let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
-			if (!["html block", "fenced code", "indented code block", ].includes(lastOpenedContainer.nodeName))
+			let firstOpenedChild = getFirstOpenChildNode(lastOpenedNode);
+			if (firstOpenedChild && firstOpenedChild !== lastOpenedNode) {
+				firstOpenedChild.closed = true;
+			}
+			if (firstOpenedChild) {
 				return lastOpenedNode;
+			}
 		}
 	}
+	return null;
+}
+
+function addOrUpdateBlockQuote(line: string, markerPos: number, lastOpenedNode: HtmlNode) {
+	let openedBlockQuote = null;
+	if (line.slice(markerPos+1,4).indexOf('>') == -1) {
+		openedBlockQuote = getInnerMostOpenBlockQuote(lastOpenedNode);
+	}else {
+		openedBlockQuote = lastOpenedNode.children[lastOpenedNode.children.length-1]
+	}
+
+	if (!openedBlockQuote || openedBlockQuote.nodeName !== "blockquote" || openedBlockQuote.closed) {
+		lastOpenedNode.children.push(
+			{parentNode: lastOpenedNode, nodeName: "blockquote", closed: false, indentLevel: lastOpenedNode.indentLevel+markerPos+1, children: []}
+		)
+		openedBlockQuote = lastOpenedNode.children[lastOpenedNode.children.length - 1]
+	}
+	let actualIndentLevel = openedBlockQuote.indentLevel
+	openedBlockQuote.nodeName = "root"; // makes every nested node actually believe it's root
+	openedBlockQuote.indentLevel = 0; // makes every nested node actually believe it's root
+
+	parseLine(line.slice(markerPos+1), openedBlockQuote);
+
+	openedBlockQuote.nodeName = "blockquote"; // restore to actual value
+	openedBlockQuote.indentLevel = actualIndentLevel; // restore to actual value
+}
+
+
+function parseLine(line: string, lastOpenedNode: HtmlNode) {
+	changeListIfLoose(lastOpenedNode);
+	let newLastOpenedNode = processBlankLine(line, lastOpenedNode);
+	if (newLastOpenedNode)
+		return newLastOpenedNode;	
 
 	line = line.replace(/^\t+/, (match)=>{
 		return (' ').repeat(match.length*4);
 	})
+	
 	let [nodeName, markerPos] = getBlockNodes(line);
 
-	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
-	if (nodeName !== "plain text" || !["paragraph", "plain text"].includes(lastOpenedContainer.nodeName)) {
+	let openedInnerChild = getInnerMostOpenContainer(lastOpenedNode)
+	if (nodeName !== "plain text" || !["paragraph", "plain text"].includes(openedInnerChild.nodeName)) {
 		// to allow for paragraph continuation lines
 		lastOpenedNode = getValidOpenedAncestor(lastOpenedNode, markerPos);
-		lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
+		openedInnerChild = getInnerMostOpenContainer(lastOpenedNode)
 	}
 	
-	if ((nodeName === "ol-li" || nodeName === "ul-li") && lastOpenedContainer.nodeName === "paragraph") {
-		if (!(/^\s*1\./).test(line)) {
+	if ((nodeName === "ol-li" || nodeName === "ul-li") && openedInnerChild.nodeName === "paragraph") {
+		if (!(/^\s*1\./).test(line)) { // only lists with markers of format '1.' can interrupt pargraphs
 			nodeName = "plain text"
 		}
 	}
 
 	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block", "plain text"];
 	if (markerPos - lastOpenedNode.indentLevel > 3) {
-		if (!multilineLeafBlocks.includes(lastOpenedContainer.nodeName)) {
+		if (!multilineLeafBlocks.includes(openedInnerChild.nodeName)) { // indented code blocks can't interrupt other leaf blocks
 			nodeName = "indented code block";
 		}else {
 			nodeName = "plain text";
 		}
 	}
 
-	if (["html block", "fenced code"].includes(lastOpenedContainer.nodeName)) {
+	if (["html block", "fenced code"].includes(openedInnerChild.nodeName)) {
 		continueLeafBlocks(lastOpenedNode, line, markerPos, "plain text");
 	}else if (!["ol-li", "ul-li", "blockquote"].includes(nodeName)) {
 		continueLeafBlocks(lastOpenedNode, line, markerPos, nodeName);
 	}else if (nodeName === "blockquote") {
-		let openedBlockQuote = null;
-		if (line.slice(markerPos+1,4).indexOf('>') == -1) {
-			openedBlockQuote = getInnerMostOpenBlockQuote(lastOpenedNode);
-		}else {
-			openedBlockQuote = lastOpenedNode.children[lastOpenedNode.children.length-1]
-		}
-
-		if (!openedBlockQuote || openedBlockQuote.nodeName !== "blockquote" || openedBlockQuote.closed) {
-			lastOpenedNode.children.push(
-				{parentNode: lastOpenedNode, nodeName: "blockquote", closed: false, indentLevel: lastOpenedNode.indentLevel+markerPos+1, children: []}
-			)
-			openedBlockQuote = lastOpenedNode.children[lastOpenedNode.children.length - 1]
-		}
-		let actualIndentLevel = openedBlockQuote.indentLevel
-		openedBlockQuote.nodeName = "root"; // makes every nested node actually believe it's root
-		openedBlockQuote.indentLevel = 0; // makes every nested node actually believe it's root
-
-		parseLine(line.slice(markerPos+1), openedBlockQuote);
-
-		openedBlockQuote.nodeName = "blockquote"; // restore to actual value
-		openedBlockQuote.indentLevel = actualIndentLevel; // restore to actual value
-		
+		addOrUpdateBlockQuote(line, markerPos, lastOpenedNode)
 	}else if (nodeName === "ol-li" || nodeName === "ul-li") {
 		lastOpenedNode = addListItem(nodeName, lastOpenedNode, line, markerPos)
 	}
 	return lastOpenedNode;
 }
 
+
+// returns the root node of a tree containing parsed markdown block structures as nodes
 export default function generateBlockNodesTree(textStream: string, dangerousHtml: string[]) {
 	let rootNode:HtmlNode = {parentNode: null as any, nodeName: "root", indentLevel: 0, closed: false, children: []};
 	let lastOpenedNode = rootNode;

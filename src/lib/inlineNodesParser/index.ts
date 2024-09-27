@@ -1,4 +1,4 @@
-import generateLinkNodes from "./linkGenerator"
+import generateLinkHtmlNodes from "./linkGenerator"
 import generateEmNodes, { setAsLeftOrRightFlanking } from "./emphasisGenerator"
 import type { LinkRef } from "../htmlGenerator"
 
@@ -199,6 +199,8 @@ export function getEscapedForm(char: string): string {
 			return "&lpar;";
 		case ')':
 			return "&rpar;";
+		case '&':
+			return "&amp;"
 		default:
 			return char
 	}
@@ -241,6 +243,9 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 			i = syntaxEnd;
 		}else if (text[i] === '>') {
 			currNode = addOrUpdateExistingNode("text content", "&gt;", currNode);
+		}else if (text[i] === '!' && ((i+1)<text.length && text[i+1]==='[')){
+			currNode = addOrUpdateExistingNode("link marker start", "![", currNode);
+			i += 2; continue;
 		}else if (text[i] === '[') {
 			currNode = addOrUpdateExistingNode("link marker start", text[i], currNode);
 		}else if (text[i] === ']') {
@@ -275,7 +280,7 @@ export function convertLinkedListToText(head: Node) {
 
 export default function parseInlineNodes(text: string, linkRefs: LinkRef[], dangerousHtmlTags: string[]): string {
 	let listHead = generateLinkedList(text, dangerousHtmlTags);
-	generateLinkNodes(listHead, linkRefs);
+	generateLinkHtmlNodes(listHead, linkRefs);
 	generateEmNodes(listHead);
 	return convertLinkedListToText(listHead);
 }
