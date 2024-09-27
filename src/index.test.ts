@@ -280,7 +280,7 @@ ookfoer</p>
 <p><code>normal code span na</code>344 <code>test</code> shi</p>
 <p>Hey man, all I'm saying is <code>console.log &copy;</code> is a better name than <code>print</code>. Template literals in js start with <code>\`</code></p>
 <p>this is bad syntax <code>1 + 2 ===  3</code></p>
-<p>They ought to be on the same line <a href="google.com" title="google's website">link text</a>(blah)</p>
+<p>They ought to be on the same line <a href="google.com" title="google&apos;s website">link text</a>(blah)</p>
 <p><code>yes code</code></p>
 <ul>
   <li>
@@ -439,4 +439,16 @@ They are indicated by surrounding the target string with _</em>_ and <em>_</em> 
 
 test("May the good lord forgive me", ()=>{
 	expect(parse(sampleText, true)).toBe(generatedHTML);
+})
+
+test("Image Links", ()=>{
+	expect(parse("![alt_text](/src 'title')", true)).toBe('<p><img src="/src" alt="alt_text" title="title"></p>\n')
+})
+
+test("Special Character Issue", ()=>{
+	expect(parse(`![alt_text](/src 'ti"tle')`, true)).toBe('<p><img src="/src" alt="alt_text" title="ti&quot;tle"></p>\n')
+})
+
+test("chracter Reference", ()=>{
+	expect(parse("&copy", true)).toBe('<p>&amp;copy</p>\n')
 })
