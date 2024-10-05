@@ -186,7 +186,7 @@ function constructTableFrom(text: string, indentLevel: number) {
 	return generateTableHtml(tableData, indentLevel);
 }
 
-export function formsValidCharRef(text: string, index: number) {
+export function formsValidCharRef(text: string, index: number) { // we still need to do decimal and hexadecimal references
 	let ref = ""
 	let validRefs: string[] = ["amp", "copy", "lg", "gt", "lt", "apos", "quot"]; // get the rest from the html spec
 
@@ -222,7 +222,7 @@ function removeInvalidCharRef(textStream: string) {
 
 // parse the content of leaf blocks for inline nodes and unescaped html tags
 function parseContent(node: HtmlNode, linkRefs: LinkRef[], dangerousHtmlTags:string[]) {
-	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName) || node.nodeName === "plain text") {
+	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName)) {
 		node.textContent = parseInlineNodes(node.textContent as string, linkRefs, dangerousHtmlTags);
 		if ((/h[1-6]/).test(node.nodeName))  {
 			node.textContent = node.textContent.trimLeft();
@@ -236,34 +236,43 @@ function parseContent(node: HtmlNode, linkRefs: LinkRef[], dangerousHtmlTags:str
 	}
 }
 
+// checks if a leaf block node's list grandparent is a loose list
+function listAncestorIsLoose(node: HtmlNode){
+	let listNodeAncestor = node.parentNode.parentNode;
+	if (listNodeAncestor && listNodeAncestor.tight === "false") {
+		return true;
+	}
+	return false;
+}
 
 function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 	const whiteSpace = ' '.repeat(indentLevel);
 
 	if (node.nodeName === "html block") {
 		return `${whiteSpace}${node.textContent}\n`
-	}else if (node.nodeName == "plain text") {
-		return node.textContent ? `${whiteSpace}${node.textContent}\n` : "";// TODO: Don't add if content is only comment
 	}else if (node.nodeName === "paragraph") {
 		let tableHtml = constructTableFrom(node.textContent, indentLevel);
 		if (tableHtml) {
 			return tableHtml;
-		}else return node.textContent ? `${whiteSpace}<p>${node.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
+		}
+		if (node.parentNode.nodeName !== "li" || listAncestorIsLoose(node))
+			return node.textContent ? `${whiteSpace}<p>${node.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
+		return node.textContent ? `${whiteSpace}${node.textContent}\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
 	}else if ((/h[1-6]/).test(node.nodeName)) {
 		const tag = node.nodeName;
 		return `${whiteSpace}<${tag}>${node.textContent}</${tag}>\n`
 	}else if (node.nodeName === "fenced code" || node.nodeName === "indented code block") {
 		return `${whiteSpace}<pre class="${node.infoString || ''}">\n${whiteSpace+'  '}<code>${node.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
-	}else if (["hr"].includes(node.nodeName)) {
-		return `${whiteSpace}<${node.nodeName}>\n`
 	}
 }
+
 
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel);
-
-	if (rootNode.nodeName === "ol") {
+	if (rootNode.nodeName === "hr") {
+		return `${whiteSpace}<${rootNode.nodeName}/>\n`
+	}else if (rootNode.nodeName === "ol") {
 		text = `${whiteSpace}<${rootNode.nodeName} start="${rootNode.startNo}">\n`	
 	}else if (rootNode.textContent === undefined) {
 		text = `${whiteSpace}<${rootNode.nodeName}>\n`;

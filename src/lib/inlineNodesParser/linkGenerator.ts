@@ -4,6 +4,8 @@ import { escapeSpecialCharacters } from "../htmlGenerator"
 import { getEscapedForm } from "./index"
 
 
+// do link labels conmform??
+
 function getEnclosedText(startNode: Node, endNode: Node) {
 	let currentNode = startNode.next;
 	let outputText = "";

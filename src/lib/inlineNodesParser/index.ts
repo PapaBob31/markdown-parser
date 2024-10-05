@@ -37,6 +37,7 @@ function isValidHtmlTag(components: string[]) {
 	return true
 }
 
+// Validates an html tag and return it's tag end position
 export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNames: string[]) {
 	const htmlComponents: string[] = []
 	let currentComponent = "";
@@ -45,7 +46,7 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 	let tagName = "";
 	const closingTagPattern = str.slice(startIndex).match(/^<\/\w+\s*>/);
 
-	if (closingTagPattern) {
+	if (closingTagPattern) { // The type of tag is a html closing tag
 		tagName = closingTagPattern[0].slice(2, closingTagPattern[0].length-1).toLowerCase();
 		// 1st condition: An ASCII alphabet must start an html tag as per gfm spec
 		if (!(/[a-zA-Z]/).test(str[startIndex+2]) || forbiddenTagNames.includes(tagName)) {
@@ -54,9 +55,10 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 		return startIndex + closingTagPattern[0].length - 1;
 	}
 
-	
+	// The tag would be processed as if it's a html opening tag
+	// The loop below attempts to split the tag into it's component parts
 	for (let i=startIndex; i<str.length; i++) {
-		if (currentComponent && ['"', "'"].includes(currentComponent[0])) {
+		if (currentComponent && ['"', "'"].includes(currentComponent[0])) { // currentComponent is an html quoted value
 			let lastIndex = currentComponent.length - 1;
 			if (currentComponent.length === 1 || currentComponent[0] !== currentComponent[lastIndex]) {
 				currentComponent += str[i];
@@ -84,8 +86,6 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 		}else if (currentComponent === '=') {
 			htmlComponents.push(currentComponent);
 			currentComponent = ""
-		}else if (currentComponent && ['"', "'"].includes(currentComponent[0])) {
-			htmlComponents.push(currentComponent); // execution can't reach here unless quoted value has already been closed
 		}
 
 		if (!charIsWhiteSpace) {
@@ -102,61 +102,67 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 	}
 }
 
-
-
+/** Generates HTML code element from textStream parameter if it's content conforms to the GFM Code span spec
+ * It returns An array of 2 elements where the generated html is the first element and the second element is
+ * the index where the codeSpan ends if valid or just where the potential starting delimiter ends if not */
 function processPossibleCodeSpan(startIndex: number, textStream: string): [string, number] {
 	let startDelimiter = "";
-	let potEndDelimiter = ""; // potential end delimiter
-	let contentStartIndex = -1;
-	let contentEndIndex = -1;
-	let codeSpanEndIndex = -1;
+	let backTickBuffer = "";
+	let codeSpanEnd = -1;
 
 	for (let i=startIndex; i<textStream.length; i++) {
-		if (textStream[i] !== '`' && !startDelimiter) {
-			startDelimiter = textStream.slice(startIndex, i);
-			contentStartIndex = i;
-		}else if (textStream[i] === '`' && startDelimiter) {
-			potEndDelimiter += textStream[i];
-		}
-		if (potEndDelimiter && (i==textStream.length-1 || textStream[i+1] !== '`')) {
-			if (potEndDelimiter === startDelimiter) {
-				codeSpanEndIndex = i;
-				contentEndIndex = i-potEndDelimiter.length;
-				break;
-			}else potEndDelimiter = "";
+		if (textStream[i] === '`') {
+			backTickBuffer += textStream[i]
+		}else if (!startDelimiter){
+			startDelimiter = backTickBuffer;
+		}else if (backTickBuffer === startDelimiter) {
+			codeSpanEnd = i-1; // Code span end index's character has to be a backtick
+			break;
 		}
 
-		if (i === textStream.length - 1) {
-			if (!startDelimiter) {
-				return ["", startIndex];
-			}
-			return ["", startIndex+startDelimiter.length-1]; // - 1 cause startDelimiter's first index is equivalent to startIndex
+		if (backTickBuffer && textStream[i] !== '`') {
+			backTickBuffer = "";
+		}
+
+		if (textStream[i] === '`' && (i === textStream.length - 1) && startDelimiter) {
+			codeSpanEnd = i;
 		}
 	}
-	let codeContent = textStream.slice(contentStartIndex, contentEndIndex+1);
+
+	if (codeSpanEnd === -1) { // no closing backtickString delimiter was found
+		return ["", startIndex+startDelimiter.length-1]; // - 1 cause startDelimiter's first index is equivalent to startIndex
+	}
+
+	let contentStartIndex = startIndex+startDelimiter.length;
+	let codeContent = textStream.slice(contentStartIndex, codeSpanEnd-startDelimiter.length+1);
 	codeContent = codeContent.replaceAll(/\n|(?:\r\n)/g, ' ');
-	if ((/\S/).test(codeContent) && codeContent[0] === ' ' && codeContent[codeContent.length-1] === ' ') {
+	if ((/\S/).test(codeContent) && codeContent[0] === ' ' && codeContent[codeContent.length-1] === ' ') { // codeContent has valid leading and trailing spaces
 		codeContent = codeContent.slice(1, codeContent.length-1);
 	}
-	return [`<code>${codeContent}</code>`, codeSpanEndIndex];
+	return [`<code>${codeContent}</code>`, codeSpanEnd];
 }
 
+// Adds a new node to or updates an existing Node inside the 
+// Linked List containing the special markdown characters and other text as nodes
 function addOrUpdateExistingNode(nodeType: string, newContent: string, currentNode: Node) {
-	if (!currentNode.type) { // head node
+	if (!currentNode.type) { // head node starts of with mostly empty or null attribute values including type
 		currentNode.type = nodeType;
 		currentNode.content = newContent;
 	}else if (currentNode.type !== nodeType || nodeType.startsWith("link marker")) {
+		/* Contents of different node type should be put in the same node unless the nodeType is a link marker
+		 Link markers have to be in unique nodes because they serve as boundary to basically unprocessed content */
 		currentNode.next = {type: nodeType, closed: true, content: newContent, next: null, prev: currentNode};
 		currentNode = currentNode.next; 
-	}else {
+	}else { // Only contents of the same node type should be put in the same node
 		currentNode.content += newContent;
 	}
 	if (nodeType.startsWith("link marker")) {
-		currentNode.closed = false;
+		currentNode.closed = false; // For further processing of links
 	}
 	return currentNode;
 }
 
+// Returns a string representing the url of a GFM Autolink
 function getAutoLinkStr(startIndex: number, text: string) {
 	let matchedPattern = text.slice(startIndex).match(/<([a-zA-Z][\w+.-]{1,32}:\S*)>/)
 	if (!matchedPattern) {
@@ -165,24 +171,24 @@ function getAutoLinkStr(startIndex: number, text: string) {
 	return matchedPattern[1];
 }
 
-function processAngleBracketMarker(text: string, bracketPos: number, currentNode: Node, forbiddenTagNames: string[]) {
+/** Processes the textStream after an angle bracket inside the text parameter possibly generating html content
+ * if the content processed conforms to any of the GFM specs that starts wwith an angle bracket. It returns An array of 
+ * 2 elements where the generated html is the first element and the second element is the index where the processed textStream ends */
+function processAngleBracketMarker(text: string, bracketPos: number, forbiddenTagNames: string[]) : [string, number] {
 	let htmlTagEndPos = getHtmlTagEndPos(bracketPos, text, forbiddenTagNames);
 	if (htmlTagEndPos > -1) {
-		currentNode = addOrUpdateExistingNode("raw html", text.slice(bracketPos, htmlTagEndPos + 1), currentNode)
-		return [currentNode, htmlTagEndPos]
+		return [text.slice(bracketPos, htmlTagEndPos + 1), htmlTagEndPos];
 	}
 	let url = getAutoLinkStr(bracketPos, text);
 	if (url) {
 		let rawHtml = `<a href="${url}">${url}</a>`;
-		currentNode = addOrUpdateExistingNode("raw html", rawHtml, currentNode)
-		return [currentNode, bracketPos+url.length+1] // zero based addition ( + the 2 angle brackets acting as boundary for the autolink)
+		return [rawHtml, bracketPos+url.length+1]; // bracketPos+url.length+1 : zero based addition ( + the 2 angle brackets acting as boundary for the autolink)
 	}
 	let matchedPattern = text.slice(bracketPos).match(/<!--(?!(?:>|->))[^]*-->/)
 	if (matchedPattern) {
-		currentNode = addOrUpdateExistingNode("raw html", matchedPattern[0], currentNode);
-		return [currentNode, matchedPattern[0].length-1]
+		return [matchedPattern[0], matchedPattern[0].length-1]
 	}
-	return [];
+	return [null, -1]
 }
 
 export function getEscapedForm(char: string): string {
@@ -206,7 +212,9 @@ export function getEscapedForm(char: string): string {
 	}
 }
 
-// TODO: maybe implement hard line break
+
+/** Returns the head of a Linked list containing plain text and special inline markdown characters as nodes
+ * The linked list will be generated from the text parameter */
 function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 	const head:Node = {type: "", closed: false, content: "", next: null, prev: null}
 	let currNode = head;
@@ -215,8 +223,9 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 	let adjSpaceCharCount = 0; // adjacent space character count
 
 	while (i < text.length){
-		if (text[i] === '\n' && (charIsEscaped || adjSpaceCharCount >= 2) && i !== text.length-1) {
+		if (text[i] === '\n' && (charIsEscaped || adjSpaceCharCount >= 2) && i !== text.length-1) { // we found an hard line break
 			if (!charIsEscaped && adjSpaceCharCount >= 2){
+				// remove the spaces representing the hardline break
 				let contentEnd = currNode.content.length - adjSpaceCharCount;
 				currNode.content = currNode.content.slice(0, contentEnd)
 			}
@@ -225,13 +234,14 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 			let replacement = getEscapedForm(text[i]);
 			currNode = addOrUpdateExistingNode("text content", replacement, currNode);
 			charIsEscaped = false;
-		}else if (text[i] === '\\'){
+		}else if (text[i] === '\\' && i !== text.length-1){
+		// backslash indicates an escape sequence if it doesn't occur at the end of a textStream
 			charIsEscaped = true;
 		}else if (text[i] === '<') {
-			const processedChanges = processAngleBracketMarker(text, i, currNode, dangerousHtmlTags)
-			if (processedChanges.length !== 0) {
-				currNode = processedChanges[0] as Node;
-				i = processedChanges[1] as number;
+			const [content, contentEndIndex] = processAngleBracketMarker(text, i, dangerousHtmlTags);
+			if (content) {
+				i = contentEndIndex;
+				currNode = addOrUpdateExistingNode("raw html", content, currNode);
 			}else {
 				currNode = addOrUpdateExistingNode("text content", "&lt;", currNode);
 			}
@@ -242,15 +252,16 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 			}else currNode = addOrUpdateExistingNode("text content", text.slice(i, syntaxEnd+1), currNode);
 			i = syntaxEnd;
 		}else if (text[i] === '>') {
+			// escape '>' characters that are not part of any other node
 			currNode = addOrUpdateExistingNode("text content", "&gt;", currNode);
-		}else if (text[i] === '!' && ((i+1)<text.length && text[i+1]==='[')){
+		}else if (text[i] === '!' && ((i+1)<text.length && text[i+1]==='[')){ // img link start marker
 			currNode = addOrUpdateExistingNode("link marker start", "![", currNode);
 			i += 2; continue;
-		}else if (text[i] === '[') {
+		}else if (text[i] === '[') { // normal link end marker
 			currNode = addOrUpdateExistingNode("link marker start", text[i], currNode);
-		}else if (text[i] === ']') {
+		}else if (text[i] === ']') { // any link end marker
 			currNode = addOrUpdateExistingNode("link marker end", text[i], currNode);
-		}else if (text[i] === '*' || text[i] === '_') {
+		}else if (text[i] === '*' || text[i] === '_') { // markdown's emphais and strong html elements representations
 			currNode = addOrUpdateExistingNode("pot delimiter run", text[i], currNode);
 			setAsLeftOrRightFlanking(currNode, text, i);
 		}else {

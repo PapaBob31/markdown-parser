@@ -7,11 +7,11 @@ export interface HtmlNode {
 	textContent?: string;
 	closed: boolean;
 	children: HtmlNode[];
-	indentLevel?: number;
-	fenceLength?: number;
-	infoString?: string;
-	startNo?: string;
-	tight?: string;
+	indentLevel?: number; // used to check if a node is nested under another node
+	fenceLength?: number; // stores the length of fenced code block boundary
+	infoString?: string; // stores node specifis atrributes i.e type of marker a list is using
+	startNo?: string; // the start attribute of ordered lists
+	tight?: string; // indicates if a List is loose or tight according to the GFM spec
 }
 
 export default function parse(textStream: string, escapeDangerousHtml: boolean) {

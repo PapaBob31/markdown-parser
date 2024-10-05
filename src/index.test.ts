@@ -6,6 +6,7 @@ const sampleText =
 # header 1
 ## header 20, 
 ##oops not an header but a paragraph
+
 - List item 1
 - List item 2
   *****
@@ -70,8 +71,10 @@ They ought to be on the same line [link text](google.com "google's website")(bla
 
 - first step
   - nested under first step
+
   - so is this guy
-    1. How far can you even nest lists    
+    1. How far can you even nest lists
+
            > This blockquote will not work
 
 <![CDATA[
@@ -202,25 +205,28 @@ foo- __a __(bar)__
 
 const generatedHTML = `<h1>header 1</h1>
 <h2>header 20, </h2>
-<p>##oops not an header but a paragraph
-- List item 1
-- List item 2</p>
-<hr>
-</hr>
+<p>##oops not an header but a paragraph</p>
 <ul>
   <li>
+    List item 1
+  </li>
+  <li>
+    List item 2
+    <hr/>
+  </li>
+  <li>
     List item 3 with paragraph 
+embedded in a list item
+    <ol start="1">
+      <li>
+        nested ordered list item inside the list item with a nested paragraphc
+      </li>
+      <li>
+        I'm second sha. Incoming <em>Blockquote</em>
+      </li>
+    </ol>
   </li>
 </ul>
-<p>embedded in a list item</p>
-<ol start="1.">
-  <li>
-    nested ordered list item inside the list item with a nested paragraphc
-  </li>
-  <li>
-    I'm second sha. Incoming <em>Blockquote</em>
-  </li>
-</ol>
 <p><em>Blockquote</em></p>
 <blockquote>
   <blockquote>
@@ -228,8 +234,7 @@ const generatedHTML = `<h1>header 1</h1>
 This line is part of the preceeding blockquote by virtue of the start symbol
 And so is this line but by virtue of paragraph continuation
  - Nested unordered list item</p>
-    <hr>
-    </hr>
+    <hr/>
   </blockquote>
 </blockquote>
 <div>
@@ -252,24 +257,27 @@ console.log&lpar;&quot;Inside a fenced code block&quot;&rpar;
 </pre>
 <p>And I'm just a stand alone paragraph 
 that ends here</p>
-<hr>
-</hr>
+<hr/>
 <ul>
   <li>
-    <p>up</p>
+    up
     <ul>
       <li>
         test
+I'm also test
       </li>
     </ul>
   </li>
+  <li>
+    down
+    <blockquote>
+      <p> I'm a quote nested inside a list item
+ oejejb</p>
+    </blockquote>
+  </li>
 </ul>
-<p>I'm also test
-- down</p>
 <blockquote>
-  <p> I'm a quote nested inside a list item
- oejejb
- We are not related!</p>
+  <p> We are not related!</p>
 </blockquote>
 <blockquote>
   <blockquote>
@@ -284,16 +292,16 @@ ookfoer</p>
 <p><code>yes code</code></p>
 <ul>
   <li>
-    <p>first step</p>
+    first step
     <ul>
       <li>
         <p>nested under first step</p>
       </li>
       <li>
         <p>so is this guy</p>
-        <ol start="1.">
+        <ol start="1">
           <li>
-            <p>How far can you even nest lists    </p>
+            <p>How far can you even nest lists</p>
             <pre class="">
               <code>   &gt; This blockquote will not work
               </code>
@@ -403,7 +411,7 @@ qw
 </ul>
 <h3>test line breaks</h3>
 <p>foo<br/>bar</p>
-<p>damn<br/>boy<br/>yeah</p>
+<p>damn<br/>boy<br/>yeah\\</p>
 <p>*<b>damola*</b></p>
 <table>
   <thead>
@@ -451,4 +459,17 @@ test("Special Character Issue", ()=>{
 
 test("chracter Reference", ()=>{
 	expect(parse("&copy", true)).toBe('<p>&amp;copy</p>\n')
+})
+
+test("thematic breaks", ()=>{
+  expect(parse("** ** *    *", true)).toBe('<hr/>\n')
+  expect(parse("--", true)).toBe('<p>--</p>\n')
+  expect(parse("_________", true)).toBe('<hr/>\n')
+  expect(parse("---*__", true)).toBe('<p>---*__</p>\n')
+})
+
+test("Hard Line Break", () => {
+  expect(parse("This won't form hard line break\\\n", true)).toBe("<p>This won't form hard line break\\</p>\n")
+  expect(parse("But This\\\nwould!", true)).toBe("<p>But This<br/>would!</p>\n")
+  expect(parse("Now this is an hard line break  \nBoom", true)).toBe("<p>Now this is an hard line break<br/>Boom</p>\n")
 })
