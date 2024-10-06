@@ -174,6 +174,7 @@ function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, m
 	}else markerWidth = listItemPattern[2].length + listItemPattern[3].length;
 	markerPattern = getMarkerType(listItemPattern[2]);
 
+	// only the last child node of a current node can have anymore content added to it
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1]; // potential list node
 	if (!lastChild || lastChild.nodeName !== parentNodeName || lastChild.infoString !== markerPattern) {
 		let startNo = (parentNodeName === "ol" ? listItemPattern[2].match(/[^.)]+/)[0] : "");
@@ -269,7 +270,8 @@ function addOrUpdateBlockQuote(line: string, markerPos: number, lastOpenedNode: 
 		   should be the continuation of the innermost nested blockquote */
 		openedBlockQuote = getInnerMostOpenBlockQuote(lastOpenedNode);
 	}else {
-		openedBlockQuote = lastOpenedNode.children[lastOpenedNode.children.length-1]
+		// only the last child node of a current node can have anymore content added to it
+		openedBlockQuote = lastOpenedNode.children[lastOpenedNode.children.length-1] // It's not certain it's a blockquote though
 	}
 
 	if (!openedBlockQuote || openedBlockQuote.nodeName !== "blockquote" || openedBlockQuote.closed) {

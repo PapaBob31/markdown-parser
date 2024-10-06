@@ -358,7 +358,7 @@ qw
 </pre>
 <ul>
   <li>
-    <p>test<p class="duh"> *rtr</p>* </p>
+    <p>test<p class="duh"> <em>rtr</p></em> </p>
   </li>
   <li>
     <p>  foot <a href="https://www.google.com">https://www.google.com</a></p>
@@ -382,7 +382,7 @@ qw
     <p>=&gt; <img src=null />  [linktext](/url title)</p>
   </li>
   <li>
-    <p>=&gt; <img src="null" /> <div> test *</div>*</p>
+    <p>=&gt; <img src="null" /> <div> test <em></div></em></p>
   </li>
 </ul>
 <h2>Reference links test <a href="/url" title="title">linktext</a></h2>
@@ -412,7 +412,7 @@ qw
 <h3>test line breaks</h3>
 <p>foo<br/>bar</p>
 <p>damn<br/>boy<br/>yeah\\</p>
-<p>*<b>damola*</b></p>
+<p><em><b>damola</em></b></p>
 <table>
   <thead>
 <tr>
@@ -434,10 +434,10 @@ qw
 <p><em>emphasized text</em>
 me too <a href="threadgently.com" title="tdg">easy oh</a></p>
 <p><a href="damn.com" title=""><strong>strong text</strong></a>
-<em><em><em>This</em> text is for testing <em>em</em> and <strong>strong</strong> <em><strong><em>elements</em></strong></em> generation. 
-They are indicated by surrounding the target string with _</em>_ and <em>_</em> respectively</em>*</p>
+<strong><em>This</em> text is for testing <em>em</em> and <strong>strong</strong> <em><strong><em>elements</em></strong></em> generation. 
+They are indicated by surrounding the target string with <em>*</em> and <em>_</em> respectively</strong></p>
 <p><em>(<strong>foo</strong>)</em> <strong>foo "<em>bar</em>" foo</strong> __foo bar __ __(__foo)</p>
-<p><strong>foo, <strong>bar</strong>, baz</strong> 5<strong>6</strong>78</p>
+<p><strong>foo, <strong>bar</strong>, baz</strong> 5__6__78</p>
 <p>foo- __a <strong>(bar)</strong></p>
 <p><strong>foo, <strong>bar</strong>, baz</strong></p>
 <p><strong>Gomphocarpus (<em>Gomphocarpus physocarpus</em>, syn.
@@ -472,4 +472,14 @@ test("Hard Line Break", () => {
   expect(parse("This won't form hard line break\\\n", true)).toBe("<p>This won't form hard line break\\</p>\n")
   expect(parse("But This\\\nwould!", true)).toBe("<p>But This<br/>would!</p>\n")
   expect(parse("Now this is an hard line break  \nBoom", true)).toBe("<p>Now this is an hard line break<br/>Boom</p>\n")
+})
+
+test("Emphasis", ()=>{
+  expect(parse("__foo__bar__baz__", true)).toBe("<p><strong>foo__bar__baz</strong></p>\n")
+  expect(parse("_пристаням_стремятся", true)).toBe("<p>_пристаням_стремятся</p>\n")
+  // expect(parse('a**"foo"**', true)).toBe("<p>a**&quot;foo&quot;**</p>\n") // so far this test doesn't pass, escaping special characters is not complete
+  expect(parse("foo******bar*********baz", true)).toBe("<p>foo<strong><strong><strong>bar</strong></strong></strong>***baz</p>\n")
+  expect(parse("_*_", true)).toBe("<p><em>*</em></p>\n")
+  expect(parse("*<div class=* >*", true)).toBe("<p><em><div class=* ></em></p>\n")
+  expect(parse("*<div class=* >", true)).toBe("<p>*<div class=* ></p>\n")
 })

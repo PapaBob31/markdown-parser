@@ -261,12 +261,12 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 			currNode = addOrUpdateExistingNode("link marker start", text[i], currNode);
 		}else if (text[i] === ']') { // any link end marker
 			currNode = addOrUpdateExistingNode("link marker end", text[i], currNode);
-		}else if (text[i] === '*' || text[i] === '_') { // markdown's emphais and strong html elements representations
+		}else if (text[i] === '*' || text[i] === '_') { // markdown's emphasis and strong html elements representations
 			currNode = addOrUpdateExistingNode("pot delimiter run", text[i], currNode);
 			setAsLeftOrRightFlanking(currNode, text, i);
 		}else {
 			currNode = addOrUpdateExistingNode("text content", text[i], currNode);
-			charIsEscaped = false // incase
+			charIsEscaped = false // The escaped character didn't turn out to be a special character
 		}
 		if (text[i] === ' ')
 			adjSpaceCharCount++
@@ -276,6 +276,7 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 	return head;
 }
 
+// Returns the concatenated content of all nodes in the linked list as one string
 export function convertLinkedListToText(head: Node) {
 	let currentNode = head;
 	let outputText = ""
