@@ -7,12 +7,15 @@ export interface LinkRef {
 	title: string
 }
 
-
-function getLinkReferenceDefs(text: string) { // TODO: search and replace all escaped characters with regex
-	const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/);
+/** Returns An object containing the label, destination and title of a
+ *  link reference definition (as per GFM spec) as attributes
+ * @param {text} : The string containing the link refernce definition */
+function getLinkReferenceDefs(text: string) { 
+	const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/); // link reference definition as per gfm spec
 	const linkRefDef = {label: "", destination: "", title: ""};
 
-	if (!linkData || linkData[1].length > 999) {
+	// probably buggy
+	if (!linkData || linkData[1].length > 999) { // link labels shouldn't be more than 999 characters
 		return null
 	}else {
 		linkRefDef.label = linkData[1];
@@ -75,34 +78,44 @@ export function escapeSpecialCharacters(text: string) {
 
 
 /*
-	'|' must delimit cells
+	'|' must delimit cells because the user might just be trying to pad the table and the whitespace will be taken as content
 	my implementation, my rules
 	|| i.e pipes without any content in between isn't allowed, put something even if it's just whitespace
 	beginning and ending whitespace would be stripped if present
+	content in delimiter row cells can only be '-'
 
 */
+// Serializes a line that contains *my markdown* table rows and return an array of the content
 function getRowContents(line: string){
 	let cellData = "";
 	let cells = [];
 	let i = 0;
+	let charIsEscaped = false
 
 	while (i < line.length) {
-		if (line[i] === '|') {
+		if (line[i] === '\\') {
+			charIsEscaped = true;
+		}else if (line[i] === '|' && !charIsEscaped) {
 			if (cellData) {
+				cellData === ' ab' && console.log(cellData)
 				cells.push(cellData);
 				cellData = "";
-			}else if (cells.length > 0) {
+			}else if (cells.length > 0) { // pipes without any content in between isn't allowed i.e '||'
 				cells = [];
 				break;
 			}	
 		}else {
+			if (charIsEscaped && line[i] !== '|') {
+				cellData += '\\' // only '|' can be escaped in tables
+			}
+			charIsEscaped = false // Resets to default whether '|' was escaped or not
 			cellData += line[i]
 		}
-		i++;
 
-		if (i == line.length-1 && line[i] !== '|') {
+		if (i == line.length-1 && line[i] !== '|') { // row doesn't have a trailing '|' making it invalid
 			cells = [];
 		}
+		i++;
 	}
 	return cells
 }
@@ -133,35 +146,50 @@ function stripSpace(text: string) {
 	return text
 }
 
-// TODO: add proper indent to table's output
+
+// Returns generated html table from the TableData object passed as a parameter
 function generateTableHtml(tableData: TableData, indentLevel: number){
-	let text = `${' '.repeat(indentLevel)}<table>\n${' '.repeat(indentLevel+2)}<thead>\n<tr>\n`
+	let text = `${' '.repeat(indentLevel)}<table>\n`
+	text += `${' '.repeat(indentLevel+2)}<thead>\n`
+	text += `${' '.repeat(indentLevel+4)}<tr>\n`;
 
 	for (let i=0; i < tableData.headerCells.length; i++) {
 		const alignment = tableData.cellsAlignment[i]
-		const cell = tableData.headerCells[i]
-		text += `${' '.repeat(indentLevel+2)}<th${alignment ? ' align='+alignment: ""}>${stripSpace(cell)}</th>\n`
+		const cell = tableData.headerCells[i];
+		text += `${' '.repeat(indentLevel+6)}<th${alignment ? ' align='+alignment: ""}>${stripSpace(cell)}</th>\n`
 	}
-	text += `${' '.repeat(indentLevel+2)}</tr>\n</thead>\n<tbody>\n`
+	text += `${' '.repeat(indentLevel+4)}</tr>\n`;
+	text += `${' '.repeat(indentLevel+2)}</thead>\n`
 
+	text += `${' '.repeat(indentLevel+2)}<tbody>\n`
 	for (let row of tableData.bodyCells) {
-		text += `${' '.repeat(indentLevel+2)}<tr>\n`
+		text += `${' '.repeat(indentLevel+4)}<tr>\n`
 		for (let i=0; i<row.length; i++) {
 			const alignment = tableData.cellsAlignment[i]
-			text += `${' '.repeat(indentLevel+2)}<td${alignment ? ' align='+alignment: ""}>${stripSpace(row[i])}<td>\n`
+			text += `${' '.repeat(indentLevel+6)}<td${alignment ? ' align='+alignment: ""}>${stripSpace(row[i])}</td>\n`
 		}
 		if (row.length < tableData.headerCells.length) {
-			text += (`${' '.repeat(indentLevel+2)}<td></td>\n`).repeat(tableData.headerCells.length - row.length)
+			text += (`${' '.repeat(indentLevel+6)}<td></td>\n`).repeat(tableData.headerCells.length - row.length)
 		}
-		text += `${' '.repeat(indentLevel+2)}</tr>\n`
+		text += `${' '.repeat(indentLevel+4)}</tr>\n`
 	}
-	text += `${' '.repeat(indentLevel+2)}</tbody>\n${' '.repeat(indentLevel)}</table>\n`
+	text += `${' '.repeat(indentLevel+2)}</tbody>\n`
+
+	text += `${' '.repeat(indentLevel)}</table>\n`
 	return text
 }
 
+/** Returns the html table representation of a string conforming to *my markdown* table spec
+ * @param {text} : text that the html table would be generated from
+ * @param {indentLevel} : number indicating how many spaces the table should indented when generated */
 function constructTableFrom(text: string, indentLevel: number) {
 	const tableData:TableData = {headerCells: [], bodyCells: [], cellsAlignment: []}
 	let tableRows = text.split(/(?:\r\n)|\n|\r/);
+
+	function cellsAreDelimiters(cells: string[]) {
+		return cells.every(cell => (/^\s*:?-+:?\s*$/).test(cell))
+	}
+
 	if (tableRows[0] == text)
 		return "";
 	for (let i=0; i<tableRows.length; i++) {
@@ -173,11 +201,11 @@ function constructTableFrom(text: string, indentLevel: number) {
 			if (cells.length === 0)
 				return "";
 			tableData.headerCells = [...cells]
-		}else if (tableData.cellsAlignment.length === 0) {
-			if (cells.length === 0 || cells.length !== tableData.headerCells.length)
+		}else if (tableData.cellsAlignment.length === 0) { // No delimiter row yet. Getting a delimiter row equals getting a cellsAllignment row
+			if (cells.length === 0 || cells.length !== tableData.headerCells.length || !cellsAreDelimiters(cells)) // Row isn't a `delimiter row`
 				return "";
 			tableData.cellsAlignment = cells.map((cell) => getCellAlignment(cell))
-		}else if (cells.length === 0) {
+		}else if (cells.length === 0) { // Row doesn't conform to any of the table specification invalidating the whole table
 			return "";
 		}else {
 			tableData.bodyCells.push(cells);
@@ -188,7 +216,7 @@ function constructTableFrom(text: string, indentLevel: number) {
 
 export function formsValidCharRef(text: string, index: number) { // we still need to do decimal and hexadecimal references
 	let ref = ""
-	let validRefs: string[] = ["amp", "copy", "lg", "gt", "lt", "apos", "quot"]; // get the rest from the html spec
+	let validRefs: string[] = ["amp", "copy", "lg", "gt", "lt", "apos", "quot"]; // get the rest from the html spec or maybe not
 
 	for (let i=index+1; i<text.length; i++) {
 		if ((/\s/).test(text[i])){
@@ -207,7 +235,8 @@ export function formsValidCharRef(text: string, index: number) { // we still nee
 	return false
 }
 
-// Removes invalid html character references
+/** Returns a new string that's the same with the textStream parameter
+ *  except ampersand character starting invalid HTML character references have been escaped */
 function removeInvalidCharRef(textStream: string) {
 	let output = ""
 	for (let i=0; i<textStream.length; i++){
@@ -232,11 +261,12 @@ function parseContent(node: HtmlNode, linkRefs: LinkRef[], dangerousHtmlTags:str
 	}
 
 	if (!["indented code block", "fenced code"].includes(node.nodeName) && node.textContent) {
-		node.textContent = removeInvalidCharRef(node.textContent); // maybe implement a regex solution
+		node.textContent = removeInvalidCharRef(node.textContent);
 	}
 }
 
-// checks if a leaf block node's list grandparent is a loose list
+// Returnsa a boolean indicating if a node's grandparent is a loose list
+// node parameter expected is a leaf block type
 function listAncestorIsLoose(node: HtmlNode){
 	let listNodeAncestor = node.parentNode.parentNode;
 	if (listNodeAncestor && listNodeAncestor.tight === "false") {
@@ -245,8 +275,9 @@ function listAncestorIsLoose(node: HtmlNode){
 	return false;
 }
 
+/// Generates the html representation of a node
 function generateNodeHtml(node: HtmlNode, indentLevel: number) {
-	const whiteSpace = ' '.repeat(indentLevel);
+	const whiteSpace = ' '.repeat(indentLevel); // indentation for node's generated html
 
 	if (node.nodeName === "html block") {
 		return `${whiteSpace}${node.textContent}\n`
@@ -256,20 +287,27 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 			return tableHtml;
 		}
 		if (node.parentNode.nodeName !== "li" || listAncestorIsLoose(node))
-			return node.textContent ? `${whiteSpace}<p>${node.textContent}</p>\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
-		return node.textContent ? `${whiteSpace}${node.textContent}\n` : "";// TODO: Don't nest inside paragraphs if content is only comment
+			return node.textContent ? `${whiteSpace}<p>${node.textContent}</p>\n` : "";
+		return node.textContent ? `${whiteSpace}${node.textContent}\n` : ""; // Paragraph nodes inside tight lists should be rendered without tags
 	}else if ((/h[1-6]/).test(node.nodeName)) {
 		const tag = node.nodeName;
-		return `${whiteSpace}<${tag}>${node.textContent}</${tag}>\n`
+		return `${whiteSpace}<${tag}>${node.textContent}</${tag}>\n` // html header
 	}else if (node.nodeName === "fenced code" || node.nodeName === "indented code block") {
 		return `${whiteSpace}<pre class="${node.infoString || ''}">\n${whiteSpace+'  '}<code>${node.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
 	}
 }
 
 
+/** Generates html text from a tree containing markdown blocks as nodes
+ * @param {rootNode} : The root node of the tree 
+ * @param {indentLevel} : The number of spaces to be used for indentation when generating content
+ * @param {linkRefs} : key-value mappings of link label and link label reference definitions 
+ * @param {dangerousHtmlTags} : array of strings containing tag names that would be considered dangerous html */
 export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
 	let text = "";
-	const whiteSpace = ' '.repeat(indentLevel);
+	const whiteSpace = ' '.repeat(indentLevel); // indentation for node's generated html
+
+	// Generate the opening tag for the node
 	if (rootNode.nodeName === "hr") {
 		return `${whiteSpace}<${rootNode.nodeName}/>\n`
 	}else if (rootNode.nodeName === "ol") {
@@ -278,22 +316,22 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 		text = `${whiteSpace}<${rootNode.nodeName}>\n`;
 	}
 
-	if (rootNode.textContent === undefined) {
-		if (rootNode.nodeName === "root")
-			text = "";
+	if (rootNode.textContent === undefined) { // rootNode is a container block
+		if (rootNode.nodeName === "root") // the root node of the tree
+			text = ""; // Html shouldn't be generated for the tree's root node because it represents the document being parsed
 		else 
-			indentLevel += 2;
+			indentLevel += 2; // A node's children should be indented 2 spaces more than the parent
 
 		for (let childNode of rootNode.children) {
 			text += `${generateHtmlFromTree(childNode, indentLevel, linkRefs, dangerousHtmlTags)}`;
 		}
-	}else {
+	}else { // rootNode is a leaf block
 		parseContent(rootNode, linkRefs, dangerousHtmlTags)
 		text = generateNodeHtml(rootNode, indentLevel);
 	}
 
 	if (rootNode.textContent === undefined && rootNode.nodeName !== "root") {
-		text += `${whiteSpace}</${rootNode.nodeName}>\n`;
+		text += `${whiteSpace}</${rootNode.nodeName}>\n`; // Generate the closing tag for the node
 	}
 	
 	return text;

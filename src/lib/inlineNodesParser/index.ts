@@ -223,14 +223,17 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 	let adjSpaceCharCount = 0; // adjacent space character count
 
 	while (i < text.length){
-		if (text[i] === '\n' && (charIsEscaped || adjSpaceCharCount >= 2) && i !== text.length-1) { // we found an hard line break
-			if (!charIsEscaped && adjSpaceCharCount >= 2){
+		if (text[i] === '\n' && (charIsEscaped || (adjSpaceCharCount >= 2)) && i !== text.length-1) { // we found an hard line break
+			if (adjSpaceCharCount >= 2){
 				// remove the spaces representing the hardline break
 				let contentEnd = currNode.content.length - adjSpaceCharCount;
 				currNode.content = currNode.content.slice(0, contentEnd)
+			}else if (charIsEscaped) {
+				charIsEscaped = false;
 			}
 			currNode = addOrUpdateExistingNode("raw html", "<br/>", currNode);
-		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i])) {
+		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i]) && text[i] !== '|') {
+			// all punctuations are escapable here except '|' that may be part of a table's syntax
 			let replacement = getEscapedForm(text[i]);
 			currNode = addOrUpdateExistingNode("text content", replacement, currNode);
 			charIsEscaped = false;
@@ -265,8 +268,11 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 			currNode = addOrUpdateExistingNode("pot delimiter run", text[i], currNode);
 			setAsLeftOrRightFlanking(currNode, text, i);
 		}else {
+			if (charIsEscaped) { // The escaped character didn't turn out to be a special character in this context
+				currNode = addOrUpdateExistingNode("text content", '\\', currNode) // backslash should be used literally for now
+			}
 			currNode = addOrUpdateExistingNode("text content", text[i], currNode);
-			charIsEscaped = false // The escaped character didn't turn out to be a special character
+			charIsEscaped = false 
 		}
 		if (text[i] === ' ')
 			adjSpaceCharCount++

@@ -415,20 +415,20 @@ qw
 <p><em><b>damola</em></b></p>
 <table>
   <thead>
-<tr>
-  <th><em>abc</em></th>
-  <th>def</th>
-  </tr>
-</thead>
-<tbody>
-  <tr>
-  <td>bar<td>
-  <td>baz<td>
-  </tr>
-  <tr>
-  <td>bot<td>
-  <td></td>
-  </tr>
+    <tr>
+      <th><em>abc</em></th>
+      <th>def</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>bar</td>
+      <td>baz</td>
+    </tr>
+    <tr>
+      <td>bot</td>
+      <td></td>
+    </tr>
   </tbody>
 </table>
 <p><em>emphasized text</em>
@@ -482,4 +482,67 @@ test("Emphasis", ()=>{
   expect(parse("_*_", true)).toBe("<p><em>*</em></p>\n")
   expect(parse("*<div class=* >*", true)).toBe("<p><em><div class=* ></em></p>\n")
   expect(parse("*<div class=* >", true)).toBe("<p>*<div class=* ></p>\n")
+})
+
+test("paragraph", ()=>{
+  expect(parse("   <!-- uhuhg -->", true)).toBe("   <!-- uhuhg -->\n")
+})
+
+const tableTextBad = `
+| *abc* | def |
+| -1-- | --5- |
+| bar | baz |
+| bot |
+`
+
+const tableHTMLBad = `<p>| <em>abc</em> | def |
+| -1-- | --5- |
+| bar | baz |
+| bot |</p>
+`
+
+const noDelimiterRowTable = `
+| fruit | number |
+| Apple | 2 |
+| Oranges | 15 |
+| Bananas | 345|
+`
+
+const noTableOutput = `<p>| fruit | number |
+| Apple | 2 |
+| Oranges | 15 |
+| Bananas | 345|</p>
+`
+
+const properTable = `
+| ab\\|c | def |
+| --- | --- |
+| bar | baz |
+| bot | cab |
+`
+
+const properTableHtml = `<table>
+  <thead>
+    <tr>
+      <th>ab|c</th>
+      <th>def</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>bar</td>
+      <td>baz</td>
+    </tr>
+    <tr>
+      <td>bot</td>
+      <td>cab</td>
+    </tr>
+  </tbody>
+</table>
+`
+
+test("Table", ()=>{
+  expect(parse(tableTextBad, true)).toBe(tableHTMLBad);
+  expect(parse(noDelimiterRowTable, true)).toBe(noTableOutput);
+  expect(parse(properTable, true)).toBe(properTableHtml)
 })
