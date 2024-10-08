@@ -1,6 +1,6 @@
 import type { Node } from "./index"
 import type { LinkRef } from "../htmlGenerator"
-import { escapeSpecialCharacters } from "../htmlGenerator"
+import { escapeSpecialCharacters, getDestination, getTitle } from "../htmlGenerator"
 import { getEscapedForm } from "./index"
 
 

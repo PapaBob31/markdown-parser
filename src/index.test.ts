@@ -486,6 +486,7 @@ test("Emphasis", ()=>{
 
 test("paragraph", ()=>{
   expect(parse("   <!-- uhuhg -->", true)).toBe("   <!-- uhuhg -->\n")
+  expect(parse("[link](<urla>)", true)).toBe(`<p><a href="urla">linkt</a></p>\n`)
 })
 
 const tableTextBad = `
@@ -545,4 +546,26 @@ test("Table", ()=>{
   expect(parse(tableTextBad, true)).toBe(tableHTMLBad);
   expect(parse(noDelimiterRowTable, true)).toBe(noTableOutput);
   expect(parse(properTable, true)).toBe(properTableHtml)
+})
+
+const linkTest = `
+[test]: /test "test"
+
+[test]
+`
+const linkOutput = `<p><a href="/test" title="test">test</a></p>
+`
+
+const linkTestWithUriBounds = `
+[tes\\]t]: </ tb \\>est> "te4st\\""
+
+[tes\\]t]
+`
+
+const linkOutputWithUriBounds = `<p><a href="/ tb >est" title="te4st"">tes]t</a></p>
+`
+
+test("Link Reference Definitions", ()=>{
+  expect(parse(linkTest, true)).toBe(linkOutput)
+  expect(parse(linkTestWithUriBounds, true)).toBe(linkOutputWithUriBounds)
 })

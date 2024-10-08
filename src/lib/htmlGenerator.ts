@@ -11,29 +11,173 @@ export interface LinkRef {
  *  link reference definition (as per GFM spec) as attributes
  * @param {text} : The string containing the link refernce definition */
 function getLinkReferenceDefs(text: string) { 
-	const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/); // link reference definition as per gfm spec
+	const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*?>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/); // link reference definition as per gfm spec
 	const linkRefDef = {label: "", destination: "", title: ""};
-
-	// probably buggy
-	if (!linkData || linkData[1].length > 999) { // link labels shouldn't be more than 999 characters
+	let i=0;
+	[linkRefDef.label, i] = getLabel(text)
+	if (!linkRefDef.label || i == text.length-2 || text[i+1] !== ":")
+		return null;
+	i+=2; // Destination parsing should start immediately after the ':' character
+	[linkRefDef.destination, i] = getDestination(text, i);
+	if (!linkRefDef.destination)
 		return null
-	}else {
-		linkRefDef.label = linkData[1];
-		linkRefDef.destination = linkData[2];
-	}
+	if (i === text.length)
+		return linkRefDef;
 
-	if (linkData && !linkData[3]){
-		return linkRefDef
-	}
-
-	if (linkData && linkData[3]){
-		if (linkData[3].includes("\n\n") || (linkData[3][0] !== linkData[3][linkData[3].length-1])) {
-			// first condition is maybe a crude way of checking if the text contains blank lines
-			return null
-		}else linkRefDef.title = linkData[3].slice(1, linkData[3].length-1);
-	}
+	[linkRefDef.title, i] = getTitle(text, i);
+	if (linkRefDef.title === null)
+		return null
 
 	return linkRefDef
+}
+
+// Returns the label and the index where the label ends in a string
+// extracted from a string with correct markdown label syntax
+function getLabel(text: string): [string, number] {
+	let linkLabel = ""
+	let contentRange = false; // boolean indicating if the character being iterated is part of the label text itself and not just markup
+	let charIsEscaped = false;
+	let i = 0;
+
+	while (true) {
+		if (charIsEscaped) {
+			linkLabel += text[i];
+			charIsEscaped = false;
+		}else if (text[i] === '\\' && !contentRange) { // invalid escape character
+			return [null, -1]
+		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			charIsEscaped = true
+		}else if (!contentRange && text[i] === '[') {
+			contentRange = true;
+		}else if (!contentRange && (/\S/).test(text[i])){
+			return [null, -1]
+		}else if (text[i] === ']') {
+			break;
+		}else if (text[i] === '[') { // link label contains unescaped '['
+			return [null, -1]
+		}else if (contentRange) {
+			linkLabel += text[i]
+		}
+		if (i === text.length-1)
+			return [null, -1]; // No link label was parsed yet
+		i++;
+	}
+
+	return [linkLabel, i]
+}
+
+
+function hasBalancedBrackets(text: string) {
+	let unBalancedBrackets = 0
+
+	for (let char of text) {
+		if (char === '(') {
+			unBalancedBrackets++;
+		}else if (char === ')' && unBalancedBrackets === 0) { // no opening bracket
+			return false
+		}else if (char === ')') {
+			unBalancedBrackets--
+		}
+	}
+
+	if (unBalancedBrackets === 0)
+		return true;
+	return false;
+}
+
+/** Returns a link destination and the index where the destination ends in a string
+ * Provided the string conforms to the markdown link syntax.
+ * @param {text} : string to parse
+ * @param {startIndex} : Index of text to start parsing from */
+export function getDestination(text: string, startIndex: number): [string, number] {
+	let i = startIndex;
+	let contentRange = false; // boolean indicating if the character being iterated is part of the link destination itself and not just markup
+	let destination = ""
+	let charIsEscaped = false;
+	let destHasBoundary = false;
+
+	while(true) {	
+		if (charIsEscaped) {
+			charIsEscaped = false;
+		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			charIsEscaped = true
+			i++;
+			continue;
+		}else if (contentRange && destHasBoundary) {
+			if (text[i] === '>'){
+				i++; // Function's supposed to return the index of the next char just after the link destination
+				break;
+			}
+			else if (text[i] === '<') // unescaped
+				return [null, -1];
+		}else if (contentRange && (/\s/).test(text[i])) {
+			break;
+		}
+
+		if (contentRange) {
+			destination+=text[i];
+		}
+
+		if ((/\S/).test(text[i]) && !contentRange) {
+			contentRange = true
+			if (text[i] === '<')
+				destHasBoundary = true;
+			else if (!charIsEscaped)
+				destination += text[i];
+		}
+
+		if (i === text.length-1)
+			return [null, -1];
+
+		i++;
+	}
+	if (hasBalancedBrackets(destination))
+		return [destination, i];
+	return [null, -1];
+}
+
+
+/** Returns a link title and the index where the title ends in a string
+ * Provided the string conforms to the markdown link syntax.
+ * @param {text} : string to parse
+ * @param {startIndex} : Index of text to start parsing from */
+export function getTitle(text: string, startIndex: number): [string, number] {
+	let i = startIndex;
+	let contentRange = false; // boolean indicating if the character being iterated is part of the link title itself and not just markup
+	let charIsEscaped = false;
+	const properDelimiters = "'\"("
+	let startDelimiter = '';
+	let title = "";
+
+	while (true) {
+		if (charIsEscaped) {
+			title += text[i];
+			charIsEscaped = false;
+		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			charIsEscaped = true
+		}else if (!contentRange && (/\S/).test(text[i])){
+			if (!properDelimiters.includes(text[i])) {
+				return [null, -1]
+			}else {
+				contentRange = true;
+				startDelimiter = text[i];
+			}
+		}else if (contentRange){
+			if (startDelimiter === text[i] || (startDelimiter === "(" && text[i] === ")")) {
+				console.log(text[i], text[i+1], '<=');
+				break;
+			}
+			if (text[i] === '(' || text[i] === ')') // unescaped
+				return [null, -1]
+			title += text[i];
+		}
+
+		i++;	
+	}
+	if (i < text.length-1 && (/\S/).test(text.slice(i+1))) // only whitespace characters are allowed after link titles if present
+		return [null, -1];
+	return [title, i];
+
 }
 
 export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
@@ -83,7 +227,6 @@ export function escapeSpecialCharacters(text: string) {
 	|| i.e pipes without any content in between isn't allowed, put something even if it's just whitespace
 	beginning and ending whitespace would be stripped if present
 	content in delimiter row cells can only be '-'
-
 */
 // Serializes a line that contains *my markdown* table rows and return an array of the content
 function getRowContents(line: string){
