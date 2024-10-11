@@ -433,7 +433,7 @@ qw
 </table>
 <p><em>emphasized text</em>
 me too <a href="threadgently.com" title="tdg">easy oh</a></p>
-<p><a href="damn.com" title=""><strong>strong text</strong></a>
+<p><a href="damn.com"><strong>strong text</strong></a>
 <strong><em>This</em> text is for testing <em>em</em> and <strong>strong</strong> <em><strong><em>elements</em></strong></em> generation. 
 They are indicated by surrounding the target string with <em>*</em> and <em>_</em> respectively</strong></p>
 <p><em>(<strong>foo</strong>)</em> <strong>foo "<em>bar</em>" foo</strong> __foo bar __ __(__foo)</p>
@@ -443,7 +443,6 @@ They are indicated by surrounding the target string with <em>*</em> and <em>_</e
 <p><strong>Gomphocarpus (<em>Gomphocarpus physocarpus</em>, syn.
 <em>Asclepias physocarpa</em>)</strong> a**"foo"**</p>
 `
-
 
 test("May the good lord forgive me", ()=>{
 	expect(parse(sampleText, true)).toBe(generatedHTML);
@@ -486,7 +485,7 @@ test("Emphasis", ()=>{
 
 test("paragraph", ()=>{
   expect(parse("   <!-- uhuhg -->", true)).toBe("   <!-- uhuhg -->\n")
-  expect(parse("[link](<urla>)", true)).toBe(`<p><a href="urla">linkt</a></p>\n`)
+  expect(parse("[link](<urla>)", true)).toBe(`<p><a href="urla">link</a></p>\n`)
 })
 
 const tableTextBad = `
@@ -562,7 +561,7 @@ const linkTestWithUriBounds = `
 [tes\\]t]
 `
 
-const linkOutputWithUriBounds = `<p><a href="/ tb >est" title="te4st"">tes]t</a></p>
+const linkOutputWithUriBounds = `<p><a href="/ tb &gt;est" title="te4st&quot;">tes]t</a></p>
 `
 
 test("Link Reference Definitions", ()=>{

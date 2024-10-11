@@ -1,6 +1,7 @@
-import generateLinkHtmlNodes from "./linkGenerator"
 import generateEmNodes, { setAsLeftOrRightFlanking } from "./emphasisGenerator"
-import type { LinkRef } from "../htmlGenerator"
+import type { LinkRef } from "./linkGenerator"
+import { generateLinkHtmlNode } from "./linkGenerator"
+import { escapeSpecialCharacters } from "../htmlGenerator"
 
 export const PUNCTUATIONS = "<>;,.()[]{}!`~+-*&^%$#@\\/\"':?~|"; // is this all the possible punctuations?
 
@@ -215,7 +216,7 @@ export function getEscapedForm(char: string): string {
 
 /** Returns the head of a Linked list containing plain text and special inline markdown characters as nodes
  * The linked list will be generated from the text parameter */
-function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
+function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs: LinkRef[]) {
 	const head:Node = {type: "", closed: false, content: "", next: null, prev: null}
 	let currNode = head;
 	let charIsEscaped = false;
@@ -264,6 +265,11 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[]) {
 			currNode = addOrUpdateExistingNode("link marker start", text[i], currNode);
 		}else if (text[i] === ']') { // any link end marker
 			currNode = addOrUpdateExistingNode("link marker end", text[i], currNode);
+			const [newNode, endIndex] = generateLinkHtmlNode(text, currNode, linkRefs, i)
+			if (newNode) {
+				currNode = newNode;
+				i = endIndex;
+			}
 		}else if (text[i] === '*' || text[i] === '_') { // markdown's emphasis and strong html elements representations
 			currNode = addOrUpdateExistingNode("pot delimiter run", text[i], currNode);
 			setAsLeftOrRightFlanking(currNode, text, i);
@@ -297,8 +303,7 @@ export function convertLinkedListToText(head: Node) {
 }
 
 export default function parseInlineNodes(text: string, linkRefs: LinkRef[], dangerousHtmlTags: string[]): string {
-	let listHead = generateLinkedList(text, dangerousHtmlTags);
-	generateLinkHtmlNodes(listHead, linkRefs);
+	let listHead = generateLinkedList(text, dangerousHtmlTags, linkRefs);
 	generateEmNodes(listHead);
 	return convertLinkedListToText(listHead);
 }

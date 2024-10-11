@@ -1,12 +1,213 @@
-import type { Node } from "./index"
-import type { LinkRef } from "../htmlGenerator"
-import { escapeSpecialCharacters, getDestination, getTitle } from "../htmlGenerator"
-import { getEscapedForm } from "./index"
+import type {Node} from "./index"
+import { PUNCTUATIONS } from "./index"
+import { escapeSpecialCharacters } from "../htmlGenerator"
+export interface LinkRef {
+	label: string;
+	destination: string;
+	title: string
+}
 
 
-// do link labels conmform??
+/** Returns An object containing the label, destination and title of a
+ *  link reference definition (as per GFM spec) as attributes
+ * @param {text} : The string containing the link refernce definition */
+export function getLinkReferenceDefs(text: string) { 
+	const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*?>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/); // link reference definition as per gfm spec
+	const linkRefDef = {label: "", destination: "", title: ""};
+	let i=0;
+	[linkRefDef.label, i] = getLabel(text)
+	if (!linkRefDef.label || i == text.length-2 || text[i+1] !== ":" || !(/\S/).test(linkRefDef.label) || linkRefDef.label.length > 999)
+		return null;
+	i+=2; // Destination parsing should start immediately after the ':' character
+	[linkRefDef.destination, i] = getDestination(text, i);
+	if (!linkRefDef.destination)
+		return null
+	if (i === text.length)
+		return linkRefDef;
 
-function getEnclosedText(startNode: Node, endNode: Node) {
+	[linkRefDef.title, i] = getTitle(text, i+1);
+	if (linkRefDef.title === null)
+		return null
+
+	if (i < text.length-1 && (/\S/).test(text.slice(i+1))) // only whitespace characters are allowed after link titles if present
+		return null
+	return linkRefDef
+}
+
+// Returns the label and the index where the label ends in a string
+// extracted from a string with correct markdown label syntax
+export function getLabel(text: string, startIndex=0): [string, number] {
+	let linkLabel = ""
+	let contentRange = false; // boolean indicating if the character being iterated is part of the label text itself and not just markup
+	let charIsEscaped = false;
+	let i = startIndex;
+
+	while (true) {
+		if (charIsEscaped) {
+			linkLabel += text[i];
+			charIsEscaped = false;
+		}else if (text[i] === '\\' && !contentRange) { // invalid escape character
+			return [null, -1]
+		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			charIsEscaped = true
+		}else if (!contentRange && text[i] === '[') {
+			contentRange = true;
+		}else if (!contentRange && (/\S/).test(text[i])){
+			return [null, -1]
+		}else if (text[i] === ']') {
+			break;
+		}else if (text[i] === '[') { // link label contains unescaped '['
+			return [null, -1]
+		}else if (contentRange) {
+			linkLabel += text[i]
+		}
+		if (i === text.length-1){
+			return [null, -1]; // No link label was parsed yet
+		}
+		i++;
+	}
+
+	return [linkLabel, i]
+}
+
+
+function hasBalancedBrackets(text: string) {
+	let unBalancedBrackets = 0
+
+	for (let char of text) {
+		if (char === '(') {
+			unBalancedBrackets++;
+		}else if (char === ')' && unBalancedBrackets === 0) { // no opening bracket
+			return false
+		}else if (char === ')') {
+			unBalancedBrackets--
+		}
+	}
+
+	if (unBalancedBrackets === 0)
+		return true;
+	return false;
+}
+
+/** Returns a link destination and the index of the character where the 
+ * destination ends in a string provided the string conforms to the markdown link syntax.
+ * @param {text} : string to parse
+ * @param {startIndex} : Index of text to start parsing from */
+export function getDestination(text: string, startIndex: number, partOfInlineLink:boolean=false): [string, number] {
+	let i = startIndex;
+	let contentRange = false; // boolean indicating if the character being iterated is part of the link destination itself and not just markup
+	let destination = ""
+	let charIsEscaped = false;
+	let destHasBoundary = false;
+
+	while(true) {	
+		if (charIsEscaped) {
+			charIsEscaped = false;
+			destination+=text[i];
+			i++;
+			continue;
+		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			charIsEscaped = true
+			i++;
+			continue;
+		}else if (contentRange) { // </ tb 
+			destination+=text[i];
+		}
+
+		if (destHasBoundary) {
+			if (text[i] === '>'){
+				destination = destination.slice(1, destination.length-1); // strip the boundary, duhh
+				break;
+			}else if (text[i] === '<'){ // unescaped
+				return [null, -1];
+			}
+		}else if (text[i+1] === ')' && partOfInlineLink && hasBalancedBrackets(destination)){
+			break;
+		}else if (contentRange && (/\s/).test(text[i+1])) {
+			break;
+		}
+
+
+		if ((/\S/).test(text[i]) && !contentRange) {
+			contentRange = true
+			if (text[i] === '<' && !charIsEscaped)
+				destHasBoundary = true;
+			destination += text[i];
+		}
+
+		if (i === text.length-1){
+			return [null, -1];
+		}
+
+		i++;
+	}
+	if (hasBalancedBrackets(destination)){
+		return [destination, i];
+	}
+	return [null, -1];
+}
+
+
+/** Returns a link title and the index where the title ends in a string
+ * provided the string conforms to the markdown link syntax.
+ * @param {text} : string to parse
+ * @param {startIndex} : Index of text to start parsing from */
+export function getTitle(text: string, startIndex: number): [string, number] {
+	let i = startIndex;
+	let contentRange = false; // boolean indicating if the character being iterated is part of the link title itself and not just markup
+	let charIsEscaped = false;
+	const properDelimiters = "'\"("
+	let startDelimiter = '';
+	let title = "";
+
+	while (true) {
+		if (charIsEscaped) {
+			title += text[i];
+			charIsEscaped = false;
+		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			charIsEscaped = true
+		}else if (!contentRange && (/\S/).test(text[i])){
+			if (!properDelimiters.includes(text[i])) {
+				return [null, -1]
+			}else {
+				contentRange = true;
+				startDelimiter = text[i];
+			}
+		}else if (contentRange){
+			if (startDelimiter === text[i] || (startDelimiter === "(" && text[i] === ")")) {
+				break; 
+			}
+			if (startDelimiter === '(' || text[i] === '('){ // unescaped
+				return [null, -1]
+			}
+			title += text[i];
+		}
+
+		i++;	
+	}
+	return [title, i];
+
+}
+
+
+function getOpener(node: Node) {
+	let currentNode = node.prev;
+	
+	while (currentNode !== null) {
+		if (currentNode && currentNode.type === "link marker start") {
+			return currentNode;
+		}
+		currentNode = currentNode.prev;
+	}
+	return null
+}
+
+interface LinkAttributes {
+	destination: string;
+	title: string;
+}
+
+function getEnclosedText(startNode: Node, endNode: Node) { // escape special characters
 	let currentNode = startNode.next;
 	let outputText = "";
 
@@ -21,211 +222,102 @@ function normalized(str: string) {
 	return str.toLowerCase().replace(/\s+/, ' ').trim();
 }
 
-
-interface LinkAttributes {
-	uri: string;
-	title: string;
-	endPos: number;
-	attrEndNode: Node;
-}
-
 function getReferenceLinkData(labelStr: string, linkRefs: LinkRef[]): LinkAttributes {
 	for (let obj of linkRefs) {
 		if (normalized(obj.label) === normalized(labelStr)) {
-			return {uri: obj.destination, title: obj.title, endPos: -1, attrEndNode: null};
+			return {destination: obj.destination, title: obj.title};
 		}
 	}
-	return null;
+	return {destination: null, title: null};
 }
 
-
-function getReferenceLinks(linkText: string, labelStartNode: Node|null, linkRefs: LinkRef[]) {
-	if (!labelStartNode || labelStartNode.type !== "link marker start") {
-		return getReferenceLinkData(linkText, linkRefs);
+function getReferenceLinks(linkText: string, textStream: string, startIndex: number, linkRefs: LinkRef[]):[LinkAttributes, number] {
+	let i = startIndex;
+	if (i === textStream.length-1 || textStream[i+1] !== '[') {
+		return [getReferenceLinkData(linkText, linkRefs), i];
 	}
-	let currentNode = labelStartNode.next;
-	let labelText = ""
-
-	while (true) {
-		if (!currentNode) {
-			return getReferenceLinkData(linkText, linkRefs);
-		}else if (currentNode.type === "link marker end") {
-			if (!labelText) // possibly a collapsed ref link
-				labelText = linkText;
-			let data = getReferenceLinkData(labelText, linkRefs);
-			if (data){
-				data.attrEndNode = currentNode;
-			}else data = getReferenceLinkData(linkText, linkRefs);
-			return data;
-		}
-		labelText += currentNode.content;
-		currentNode = currentNode.next;
+	
+	let [labelText, labelTextEndIndex] = getLabel(textStream, i+1);
+	if (labelText === null) {
+		return [{destination: null, title: null}, i];
 	}
+	let data = getReferenceLinkData(labelText, linkRefs);
+	if (!data.destination) {
+		data = getReferenceLinkData(linkText, linkRefs)
+	}
+	return [data, labelTextEndIndex];
 }
 
-function changeToHtml(opener: Node, closer: Node, linkType: string, linkAttributes: LinkAttributes, linkText: string):Node {
-	let nextNode: Node = null;
-
-	if (linkAttributes.endPos > -1) {
-		let startIndex = linkAttributes.endPos+1;
-		linkAttributes.attrEndNode.content = linkAttributes.attrEndNode.content.slice(startIndex); // might be an empty string but doesn't really matter
-	}
-	if (!linkAttributes.attrEndNode) { // shortcut refernece link
-		nextNode = closer.next;
-	}else if (linkAttributes.attrEndNode.type === "link marker end") { // full reference link
-		nextNode = linkAttributes.attrEndNode.next;
-	}else { // normal links
-		nextNode = linkAttributes.attrEndNode
-	}
-
-	if (linkType === "link") {
-		opener.content = `<a href="${linkAttributes.uri}" title="${linkAttributes.title}">`;
-		closer.content = `</a>`
-		closer.next = nextNode
-		if (nextNode)
-			nextNode.prev = closer;
-	}else {
-		opener.content = `<img src="${linkAttributes.uri}" alt="${linkText}" title="${linkAttributes.title}">`;
-		opener.next = nextNode
-		if (nextNode)
-			nextNode.prev = opener;
-	}
-	opener.type = "raw html"
-	closer.type = "raw html"
-	return nextNode
-}
-
-function transformToLinkHtml(openingNode: Node, closingNode: Node, linkRefs: LinkRef[]): Node {
+function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: any): Node {
 	let linkAttributes:LinkAttributes;
 	let linkText = getEnclosedText(openingNode, closingNode)
-	let linkType = openingNode.content === "![" ? "img" : "link"
+	let linkType = openingNode.content === "![" ? "img" : "link";
 	if (linkType === "link" && !linkText) {
 		return null;
 	}
 
-	linkAttributes = getLinkAttributes(closingNode.next);
-	if (!linkAttributes) {
-		linkAttributes = getReferenceLinks(linkText, closingNode.next, linkRefs);
-	}
-
-	if (!linkAttributes) {
-		return null;
+	if (linkType === "link") {
+		openingNode.content = `<a href="${attributes.destination}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
+		closingNode.content = `</a>`
 	}else {
-		return changeToHtml(openingNode, closingNode, linkType, linkAttributes, linkText);
+		openingNode.content = `<img src="${attributes.destination}" alt="${linkText}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
+		openingNode.next = null;
 	}
+	openingNode.type = "raw html"
+	closingNode.type = "raw html"
 }
 
-export default function generateLinkHtmlNodes(head: Node, linkRefs: LinkRef[]) {
-	let currentNode = head;
-	let openers = [];
+function closeAllOpenersUpstream(startNode: Node) {
+	let currentNode = startNode
 
-	while (currentNode !== null) { // maybe implement breaking when it encounters tag that can't be nested inside link tags
+	while (currentNode) {
 		if (currentNode.type === "link marker start") {
-			openers.push(currentNode);
-		}else if (currentNode.type === "link marker end") {
-			let nextNode = null;
-			let openingNode: Node;
-			if (openers.length > 0) {
-				openingNode = openers[openers.length-1]
-				nextNode = transformToLinkHtml(openingNode, currentNode, linkRefs);
-			}
-			if (nextNode) {
-				openers.pop()
-				currentNode = nextNode;
-				let openerBefore = openers[openers.length-1]
-				if (!openerBefore || openingNode.content !== '![' || openerBefore.content !== '[') {
-					openers.forEach(node => {node.type = "text content"});
-					openers = [];
-				}
-				continue;				
-			}else {
-				currentNode.type = "text content"
-			}
+			currentNode.type = "text content"
 		}
-		currentNode = currentNode.next;
-	}
-}
-
-function getOpener(node: Node) {
-	let currentNode = node;
-	while (true) {
-		if (!currentNode || currentNode.type === "inline link html") {
-			return null
-		}else if (currentNode.type === "link start marker") {
-			return currentNode;
-		}
-		currentNode = currentNode.prev
+		currentNode = currentNode.prev;
 	}
 }
 
 
-function getLinkAttributes(startNode: Node): LinkAttributes {
-	if (!startNode || startNode.content[0] !== '(') {
-		return null;
+export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs: LinkRef[], startIndex: number) : [Node, number] {
+	let linkAttributes = {destination: "", title: ""}
+	const opener = getOpener(closer)
+	if (!opener)
+		return [null, -1];
+
+	let linkText = getEnclosedText(opener, closer);
+	let i = startIndex;
+	if (i < textStream.length-2 && textStream[i+1] === "(") {
+		i+=2; // Destination parsing should start immediately after the '(' character
+		[linkAttributes.destination, i] = getDestination(textStream, i, true);
+		if (linkAttributes.destination && i !== textStream.length-1) {
+			let titleEnd:number;
+			[linkAttributes.title, titleEnd] = getTitle(textStream, i+1);
+			if (linkAttributes.title) {
+				i = titleEnd;
+			}
+		}
 	}
-	let i = 1; // ignore the starting '('
-	let attrs:LinkAttributes = {uri: "", title: "", endPos: 0, attrEndNode: null};
-	let linkComponent = "";
-	let openedBracketsNum = 0;
-	let textStream = startNode.content;
-	let currentNode = startNode;
 
-	while (true) {
-		if (i == textStream.length && !currentNode.next) {
-			return null;
-		}else if (i == textStream.length) {
-			currentNode = currentNode.next
-			textStream = currentNode.content
-			i = 0;
+	if (linkAttributes.destination) {
+		textStream === `They ought to be on the same line [link text](google.com "google's website")(blah)` && console.log("THIS!: ", linkAttributes);
+		let end = i < textStream.length-1 && textStream.slice(i+1).match(/^\s*\)/);
+		if (!end){
+			return [null, -1];
 		}
-
-		let char = textStream[i];
-		if (linkComponent === "uri" && attrs.uri[0] === '<' && !['\n', '<'].includes(char)) {
-			attrs.uri += char;
-			if (char === '>') {
-				linkComponent = "";
-			}
-		}else if (linkComponent === "uri") {
-			return null;
-		}
-		
-		let charIsWhiteSpace = (/\s/).test(char);
-		if (char === ')' && openedBracketsNum === 0 && linkComponent !== "title") {
- 			attrs.endPos = i;
- 			attrs.attrEndNode = currentNode;
- 			attrs.title = escapeSpecialCharacters(attrs.title)
- 			attrs.uri = escapeSpecialCharacters(attrs.uri)
- 			return attrs
- 		}
-
-		if (linkComponent === "url") {
-			if (charIsWhiteSpace && openedBracketsNum !== 0)  {
-				return null;
-			}else if (charIsWhiteSpace) {
-				linkComponent = "";
-			}else {
-				attrs.uri += char;
-			}
-		}else if (linkComponent === "title") {
-			if (attrs.title[0] === char || (attrs.title[0] === '(' && char === ')')) {
-				linkComponent = "";
-				attrs.title = attrs.title.slice(1);
-			}else {
-				attrs.title += char;
-			}
-		}else if (!attrs.uri && !charIsWhiteSpace) {
-			linkComponent = "url"
-			attrs.uri += char;
-		}else if (!attrs.title && ["(", '"', "'"].includes(char)){
-			linkComponent = "title"
-			attrs.title += char;
-		}else if (char === '(' && linkComponent === "url" && attrs.uri[0] !== '<') {
-			openedBracketsNum++;
-		}else if (char === ')' && linkComponent === "url" && attrs.uri[0] !== '<') {
-			openedBracketsNum--;
-		}else if (attrs.uri && !charIsWhiteSpace){ // invalid text after uri
-			return null
-		}
-		i++;
+		i += end[0].length;
+	}else {
+		[linkAttributes, i] = getReferenceLinks(linkText, textStream, i, linkRefs);
 	}
+	if (!linkAttributes.destination) {
+		opener.type = "text content"
+		closer.type = "text content"
+		return [null, -1];
+	}else {
+		linkAttributes.destination = escapeSpecialCharacters(linkAttributes.destination)
+		linkAttributes.title = linkAttributes.title && escapeSpecialCharacters(linkAttributes.title)
+		closeAllOpenersUpstream(opener.prev)
+		transformToLinkHtml(opener, closer, linkAttributes)
+		return [opener.content === "![" ? opener : closer, i];
+	}	
 }
