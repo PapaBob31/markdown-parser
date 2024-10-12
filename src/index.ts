@@ -14,7 +14,7 @@ export interface HtmlNode {
 	tight?: string; // indicates if a List is loose or tight according to the GFM spec
 }
 
-export default function parse(textStream: string, escapeDangerousHtml: boolean) {
+export default function parse(textStream: string, escapeDangerousHtml: boolean = true) {
 	let dangerousHtml:string[] = [];
 	if (escapeDangerousHtml) {
 		dangerousHtml = ["title", "textarea", "style", "xmp", "iframe", "noembed", "noframes", "script", "plaintext"]
