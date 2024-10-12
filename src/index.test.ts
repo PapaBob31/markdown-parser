@@ -476,7 +476,7 @@ test("Hard Line Break", () => {
 test("Emphasis", ()=>{
   expect(parse("__foo__bar__baz__", true)).toBe("<p><strong>foo__bar__baz</strong></p>\n")
   expect(parse("_пристаням_стремятся", true)).toBe("<p>_пристаням_стремятся</p>\n")
-  // expect(parse('a**"foo"**', true)).toBe("<p>a**&quot;foo&quot;**</p>\n") // so far this test doesn't pass, escaping special characters is not complete
+  expect(parse('a**"foo"**', true)).toBe(`<p>a**"foo"**</p>\n`)
   expect(parse("foo******bar*********baz", true)).toBe("<p>foo<strong><strong><strong>bar</strong></strong></strong>***baz</p>\n")
   expect(parse("_*_", true)).toBe("<p><em>*</em></p>\n")
   expect(parse("*<div class=* >*", true)).toBe("<p><em><div class=* ></em></p>\n")
@@ -561,7 +561,7 @@ const linkTestWithUriBounds = `
 [tes\\]t]
 `
 
-const linkOutputWithUriBounds = `<p><a href="/ tb &gt;est" title="te4st&quot;">tes]t</a></p>
+const linkOutputWithUriBounds = `<p><a href="/%20tb%20>est" title="te4st&quot;">tes]t</a></p>
 `
 
 test("Link Reference Definitions", ()=>{

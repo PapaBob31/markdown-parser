@@ -1,42 +1,32 @@
 import type { HtmlNode } from "../index"
-import parseInlineNodes, { PUNCTUATIONS, getEscapedForm } from "./inlineNodesParser"
+import parseInlineNodes, { PUNCTUATIONS, escapeSpecialCharacters } from "./inlineNodesParser"
 import { getLinkReferenceDefs } from "./inlineNodesParser/linkGenerator"
-import type {LinkRef} from "./inlineNodesParser/linkGenerator"
-
-export function escapeSpecialCharacters(text: string) {
-	let i=0;
-	let escapedText = ""
-
-	while (i < text.length){
-		if (PUNCTUATIONS.includes(text[i])) {
-			escapedText += getEscapedForm(text[i]);
-		}else {
-			escapedText += text[i];
-		}
-		i++;
-	}
-
-	return escapedText
-}
+import type {LinkRefData, LinkRefDataMap} from "./inlineNodesParser/linkGenerator"
 
 
 export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
-	let refs: LinkRef[] = [];
+	let refs: LinkRefDataMap = {};
 
-	if (rootNode.children && rootNode.children.length > 0) {
-		for (let i=0; i<rootNode.children.length; i++) {
-			let childNode = rootNode.children[i];
-			if (["blockquote", "ul", "ol", "li"].includes(childNode.nodeName)){
-				refs = refs.concat(traverseTreeToGetLinkRefs(childNode));
-				continue
+	if (!rootNode.children && rootNode.nodeName !== "paragraph") {
+		return refs;
+	}else if (rootNode.nodeName === "paragraph") {
+		let linkReference = getLinkReferenceDefs(rootNode.textContent as string);
+		if (linkReference) {
+			let normalisedLabel = linkReference.label.toLowerCase().replace(/\s+/, ' ').trim()
+			if (!refs[normalisedLabel]){
+				refs[normalisedLabel] = linkReference;
 			}
-			if (childNode.nodeName !== "paragraph") {
-				continue;
-			}
-			let linkReference = getLinkReferenceDefs(childNode.textContent as string);
-			if (linkReference) {
-				refs.push(linkReference);
-				rootNode.children[i].textContent = ""; // since it contains link reference definitions
+			// refs.push(linkReference);
+			rootNode.textContent = ""; // since it contains link reference definitions
+		}
+		return refs
+	}
+
+	for (let childNode of rootNode.children) {
+		let newRefs = traverseTreeToGetLinkRefs(childNode);
+		for (let [key, value] of Object.entries(newRefs)) {
+			if (!refs[key]) {
+				refs[key] = newRefs[key];
 			}
 		}
 	}
@@ -62,7 +52,6 @@ function getRowContents(line: string){
 			charIsEscaped = true;
 		}else if (line[i] === '|' && !charIsEscaped) {
 			if (cellData) {
-				cellData === ' ab' && console.log(cellData)
 				cells.push(cellData);
 				cellData = "";
 			}else if (cells.length > 0) { // pipes without any content in between isn't allowed i.e '||'
@@ -215,7 +204,7 @@ function removeInvalidCharRef(textStream: string) {
 }
 
 // parse the content of leaf blocks for inline nodes and unescaped html tags
-function parseContent(node: HtmlNode, linkRefs: LinkRef[], dangerousHtmlTags:string[]) {
+function parseContent(node: HtmlNode, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]) {
 	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName)) {
 		node.textContent = parseInlineNodes(node.textContent as string, linkRefs, dangerousHtmlTags);
 		if ((/h[1-6]/).test(node.nodeName))  {
@@ -268,7 +257,7 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
  * @param {indentLevel} : The number of spaces to be used for indentation when generating content
  * @param {linkRefs} : key-value mappings of link label and link label reference definitions 
  * @param {dangerousHtmlTags} : array of strings containing tag names that would be considered dangerous html */
-export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRef[], dangerousHtmlTags:string[]):string {
+export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel); // indentation for node's generated html
 

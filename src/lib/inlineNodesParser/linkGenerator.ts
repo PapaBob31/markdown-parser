@@ -1,7 +1,8 @@
 import type {Node} from "./index"
-import { PUNCTUATIONS } from "./index"
-import { escapeSpecialCharacters } from "../htmlGenerator"
-export interface LinkRef {
+import { PUNCTUATIONS, escapeSpecialCharacters } from "./index"
+const querystring = require('node:querystring')
+
+export interface LinkRefData {
 	label: string;
 	destination: string;
 	title: string
@@ -12,7 +13,7 @@ export interface LinkRef {
  *  link reference definition (as per GFM spec) as attributes
  * @param {text} : The string containing the link refernce definition */
 export function getLinkReferenceDefs(text: string) { 
-	const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*?>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/); // link reference definition as per gfm spec
+	// const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*?>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/); // link reference definition as per gfm spec
 	const linkRefDef = {label: "", destination: "", title: ""};
 	let i=0;
 	[linkRefDef.label, i] = getLabel(text)
@@ -34,8 +35,11 @@ export function getLinkReferenceDefs(text: string) {
 	return linkRefDef
 }
 
-// Returns the label and the index where the label ends in a string
-// extracted from a string with correct markdown label syntax
+/** Returns an Array containing a GFM label text followed by the index where the label ends in a
+ *  string (that is, the closing ']' index) if any syntatically correct label is present in the string
+ * @param {text} : The string to parse
+ * @param {startIndex} : The index to start parsing the string from
+ * */
 export function getLabel(text: string, startIndex=0): [string, number] {
 	let linkLabel = ""
 	let contentRange = false; // boolean indicating if the character being iterated is part of the label text itself and not just markup
@@ -89,10 +93,11 @@ function hasBalancedBrackets(text: string) {
 	return false;
 }
 
-/** Returns a link destination and the index of the character where the 
- * destination ends in a string provided the string conforms to the markdown link syntax.
+/** Returns an Array containing a link destination followed by the index of the character where the 
+ * destination ends in a string provided the string conforms to the GFM link syntax.
  * @param {text} : string to parse
- * @param {startIndex} : Index of text to start parsing from */
+ * @param {startIndex} : Index of text to start parsing from 
+ * @param {partOfInlineLink}: indicates if the destination being parsed is part of an inline link or link reference definition*/
 export function getDestination(text: string, startIndex: number, partOfInlineLink:boolean=false): [string, number] {
 	let i = startIndex;
 	let contentRange = false; // boolean indicating if the character being iterated is part of the link destination itself and not just markup
@@ -101,22 +106,20 @@ export function getDestination(text: string, startIndex: number, partOfInlineLin
 	let destHasBoundary = false;
 
 	while(true) {	
-		if (charIsEscaped) {
-			charIsEscaped = false;
+		if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			charIsEscaped = true // next character will be escaped
+		}else if (contentRange) { 
 			destination+=text[i];
-			i++;
-			continue;
-		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
-			charIsEscaped = true
-			i++;
-			continue;
-		}else if (contentRange) { // </ tb 
-			destination+=text[i];
+			if (charIsEscaped) {
+				charIsEscaped = false;
+				i++;
+				continue;
+			}
 		}
 
 		if (destHasBoundary) {
 			if (text[i] === '>'){
-				destination = destination.slice(1, destination.length-1); // strip the boundary, duhh
+				destination = destination.slice(1, destination.length-1); // strip the '<>' boundary, duhh
 				break;
 			}else if (text[i] === '<'){ // unescaped
 				return [null, -1];
@@ -126,7 +129,6 @@ export function getDestination(text: string, startIndex: number, partOfInlineLin
 		}else if (contentRange && (/\s/).test(text[i+1])) {
 			break;
 		}
-
 
 		if ((/\S/).test(text[i]) && !contentRange) {
 			contentRange = true
@@ -186,10 +188,10 @@ export function getTitle(text: string, startIndex: number): [string, number] {
 		i++;	
 	}
 	return [title, i];
-
 }
 
-
+/** Returns a node that's a possible opening node for a link text marker closing node
+ * @param {node} : Node that requires an opening Node*/
 function getOpener(node: Node) {
 	let currentNode = node.prev;
 	
@@ -207,7 +209,8 @@ interface LinkAttributes {
 	title: string;
 }
 
-function getEnclosedText(startNode: Node, endNode: Node) { // escape special characters
+// Returns the plain text content of all the nodes between two nodes
+function getEnclosedText(startNode: Node, endNode: Node) {
 	let currentNode = startNode.next;
 	let outputText = "";
 
@@ -218,20 +221,26 @@ function getEnclosedText(startNode: Node, endNode: Node) { // escape special cha
 	return outputText;
 }
 
-function normalized(str: string) {
+function normalised(str: string) {
 	return str.toLowerCase().replace(/\s+/, ' ').trim();
 }
 
-function getReferenceLinkData(labelStr: string, linkRefs: LinkRef[]): LinkAttributes {
-	for (let obj of linkRefs) {
-		if (normalized(obj.label) === normalized(labelStr)) {
-			return {destination: obj.destination, title: obj.title};
-		}
-	}
-	return {destination: null, title: null};
+export interface LinkRefDataMap {
+	[normalisedLabel:string]: LinkRefData
 }
 
-function getReferenceLinks(linkText: string, textStream: string, startIndex: number, linkRefs: LinkRef[]):[LinkAttributes, number] {
+/** Returns an object whose attributes are the destination and title strings associated with a label text
+ * @param {labelStr} : target label text
+ * @param {linkRefs} : label text - link attributes mappings */ 
+function getReferenceLinkData(labelStr: string, linkRefs: LinkRefDataMap): LinkAttributes {
+	let refLinkData = linkRefs[normalised(labelStr)]
+	if (!refLinkData)
+		return {destination: null, title: null};
+	return {destination: refLinkData.destination, title: refLinkData.title};
+}
+
+
+function getReferenceLinks(linkText: string, textStream: string, startIndex: number, linkRefs: LinkRefDataMap):[LinkAttributes, number] {
 	let i = startIndex;
 	if (i === textStream.length-1 || textStream[i+1] !== '[') {
 		return [getReferenceLinkData(linkText, linkRefs), i];
@@ -278,8 +287,17 @@ function closeAllOpenersUpstream(startNode: Node) {
 	}
 }
 
+function urlEncode(text: string){
+	let output = "";
+	for (let char of text){
+		if ((/\s/).test(char) || !(/[\x00-\x7F]/).test(char)){
+			output += querystring.escape(char);
+		}else output += char;
+	}
+	return output
+}
 
-export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs: LinkRef[], startIndex: number) : [Node, number] {
+export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs: LinkRefDataMap, startIndex: number) : [Node, number] {
 	let linkAttributes = {destination: "", title: ""}
 	const opener = getOpener(closer)
 	if (!opener)
@@ -300,7 +318,6 @@ export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs:
 	}
 
 	if (linkAttributes.destination) {
-		textStream === `They ought to be on the same line [link text](google.com "google's website")(blah)` && console.log("THIS!: ", linkAttributes);
 		let end = i < textStream.length-1 && textStream.slice(i+1).match(/^\s*\)/);
 		if (!end){
 			return [null, -1];
@@ -314,10 +331,11 @@ export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs:
 		closer.type = "text content"
 		return [null, -1];
 	}else {
-		linkAttributes.destination = escapeSpecialCharacters(linkAttributes.destination)
+		linkAttributes.destination = urlEncode(linkAttributes.destination)
 		linkAttributes.title = linkAttributes.title && escapeSpecialCharacters(linkAttributes.title)
 		closeAllOpenersUpstream(opener.prev)
 		transformToLinkHtml(opener, closer, linkAttributes)
 		return [opener.content === "![" ? opener : closer, i];
 	}	
 }
+

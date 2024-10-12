@@ -1,7 +1,6 @@
 import generateEmNodes, { setAsLeftOrRightFlanking } from "./emphasisGenerator"
-import type { LinkRef } from "./linkGenerator"
+import type { LinkRefData, LinkRefDataMap } from "./linkGenerator"
 import { generateLinkHtmlNode } from "./linkGenerator"
-import { escapeSpecialCharacters } from "../htmlGenerator"
 
 export const PUNCTUATIONS = "<>;,.()[]{}!`~+-*&^%$#@\\/\"':?~|"; // is this all the possible punctuations?
 
@@ -216,7 +215,7 @@ export function getEscapedForm(char: string): string {
 
 /** Returns the head of a Linked list containing plain text and special inline markdown characters as nodes
  * The linked list will be generated from the text parameter */
-function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs: LinkRef[]) {
+function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs: LinkRefDataMap) {
 	const head:Node = {type: "", closed: false, content: "", next: null, prev: null}
 	let currNode = head;
 	let charIsEscaped = false;
@@ -302,7 +301,23 @@ export function convertLinkedListToText(head: Node) {
 	return outputText;
 }
 
-export default function parseInlineNodes(text: string, linkRefs: LinkRef[], dangerousHtmlTags: string[]): string {
+export function escapeSpecialCharacters(text: string) {
+	let i=0;
+	let escapedText = ""
+
+	while (i < text.length){
+		if (PUNCTUATIONS.includes(text[i])) {
+			escapedText += getEscapedForm(text[i]);
+		}else {
+			escapedText += text[i];
+		}
+		i++;
+	}
+
+	return escapedText
+}
+
+export default function parseInlineNodes(text: string, linkRefs: LinkRefDataMap, dangerousHtmlTags: string[]): string {
 	let listHead = generateLinkedList(text, dangerousHtmlTags, linkRefs);
 	generateEmNodes(listHead);
 	return convertLinkedListToText(listHead);
