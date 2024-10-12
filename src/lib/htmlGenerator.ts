@@ -4,20 +4,22 @@ import { getLinkReferenceDefs } from "./inlineNodesParser/linkGenerator"
 import type {LinkRefData, LinkRefDataMap} from "./inlineNodesParser/linkGenerator"
 
 
+// Traverses a tree to extract all link refernece definitions in the tree
 export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 	let refs: LinkRefDataMap = {};
 
 	if (!rootNode.children && rootNode.nodeName !== "paragraph") {
 		return refs;
 	}else if (rootNode.nodeName === "paragraph") {
-		let linkReference = getLinkReferenceDefs(rootNode.textContent as string);
-		if (linkReference) {
-			let normalisedLabel = linkReference.label.toLowerCase().replace(/\s+/, ' ').trim()
-			if (!refs[normalisedLabel]){
-				refs[normalisedLabel] = linkReference;
+		let results = getLinkReferenceDefs(rootNode.textContent as string);
+		if (results.linkRefsData.length > 0) {
+			for (let data of results.linkRefsData) {
+				let normalisedLabel = data.label.toLowerCase().replace(/\s+/, ' ').trim()
+				if (!refs[normalisedLabel]){ // only the first link reference definition with a specific label should be used
+					refs[normalisedLabel] = data;
+				}
 			}
-			// refs.push(linkReference);
-			rootNode.textContent = ""; // since it contains link reference definitions
+			rootNode.textContent = results.newText;
 		}
 		return refs
 	}
@@ -33,13 +35,7 @@ export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 	return refs;
 }
 
-/*
-	'|' must delimit cells because the user might just be trying to pad the table and the whitespace will be taken as content
-	my implementation, my rules
-	|| i.e pipes without any content in between isn't allowed, put something even if it's just whitespace
-	beginning and ending whitespace would be stripped if present
-	content in delimiter row cells can only be '-'
-*/
+
 // Serializes a line that contains *my markdown* table rows and return an array of the content
 function getRowContents(line: string){
 	let cellData = "";

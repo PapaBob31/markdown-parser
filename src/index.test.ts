@@ -549,10 +549,14 @@ test("Table", ()=>{
 
 const linkTest = `
 [test]: /test "test"
+[test2]: /test-2 "okay"
+residual
 
 [test]
+[test2]
 `
-const linkOutput = `<p><a href="/test" title="test">test</a></p>
+const linkOutput = `<p>residual</p>
+<p><a href="/test" title="test">test</a>\n<a href="/test-2" title="okay">test2</a></p>
 `
 
 const linkTestWithUriBounds = `

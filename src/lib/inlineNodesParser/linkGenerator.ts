@@ -8,31 +8,66 @@ export interface LinkRefData {
 	title: string
 }
 
+/** Returns the index of the first '\n' character in the text parameter starting from the startIndex parameter
+ * or the index of the last character if no '\n' character was found provided no non-whitespace character 
+ * was found before then*/
+function getEndOfLineIfValid(text: string, startIndex: number) {
+	if (startIndex >= text.length-1) {
+		return startIndex;	
+	}
+	for (let i=startIndex; i<text.length; i++) {
+		if ((/\S/).test(text[i])) {
+			return -1;
+		}
+		if (text[i] === '\n') {
+			return i
+		}
+		if (i === text.length-1)
+			return i;
+	}
+}
 
-/** Returns An object containing the label, destination and title of a
- *  link reference definition (as per GFM spec) as attributes
+
+/** Parses a text starting from an optionally specified index and returns an Array of Objects
+ * whose properties are the label, destination and title of a valid link reference 
+ * definition (as per GFM spec). It also returns the new content of the text parameter 
+ * after stripping the link reference definitions from the text parameter
  * @param {text} : The string containing the link refernce definition */
-export function getLinkReferenceDefs(text: string) { 
-	// const linkData = text.match(/^\s*\[([^]+)\]:\s*((?:<.*?>)|(?:\S+))\s*((?:"|'|\()[^]+)?\s*$/); // link reference definition as per gfm spec
+export function getLinkReferenceDefs(text: string, startIndex:number=0) : {linkRefsData: LinkRefData[], newText: string} {
+	let i = startIndex;
 	const linkRefDef = {label: "", destination: "", title: ""};
-	let i=0;
-	[linkRefDef.label, i] = getLabel(text)
-	if (!linkRefDef.label || i == text.length-2 || text[i+1] !== ":" || !(/\S/).test(linkRefDef.label) || linkRefDef.label.length > 999)
-		return null;
-	i+=2; // Destination parsing should start immediately after the ':' character
-	[linkRefDef.destination, i] = getDestination(text, i);
-	if (!linkRefDef.destination)
-		return null
-	if (i === text.length)
-		return linkRefDef;
+	const results:{linkRefsData: LinkRefData[], newText: string} = {linkRefsData: [], newText: ""};
 
-	[linkRefDef.title, i] = getTitle(text, i+1);
-	if (linkRefDef.title === null)
-		return null
+	[linkRefDef.label, i] = getLabel(text, i);
+	if (!linkRefDef.label || i == text.length-2 || text[i+1] !== ":" ||
+	 !(/\S/).test(linkRefDef.label) || linkRefDef.label.length > 999) // invalid label syntax
+		return results;
+	[linkRefDef.destination, i] = getDestination(text, i+2); // i is incremented so we start parsing the destination immediately after the ':' character
+	if (!linkRefDef.destination) {
+		return results;
+	}
+	let endIndex = -1;
+	[linkRefDef.title, endIndex] = getTitle(text, i+1); // i is incremented so we start parsing the title immediately after the last destination character
+	if (linkRefDef.title === null ) { // invalid title syntax
+		return results;	
+	}
+	if (linkRefDef.title !== null){
+		let refEndIndex = getEndOfLineIfValid(text, endIndex+1);
+		if (refEndIndex === -1) // non-whitespace character after title was found
+			return results;
+		i = refEndIndex;
+	}
 
-	if (i < text.length-1 && (/\S/).test(text.slice(i+1))) // only whitespace characters are allowed after link titles if present
-		return null
-	return linkRefDef
+	// valid link reference definition
+	results.linkRefsData.push(linkRefDef);
+	results.newText = text.slice(i+1)
+
+	let moreData = i !== text.length-1 && getLinkReferenceDefs(text, i);
+	if (moreData.linkRefsData.length > 0) { // the text still contains more link refernece definitions
+		results.linkRefsData.push(...moreData.linkRefsData)
+		results.newText = moreData.newText; // the new content of the text would always be after the last link reference definition
+	}
+	return results
 }
 
 /** Returns an Array containing a GFM label text followed by the index where the label ends in a
@@ -240,23 +275,26 @@ function getReferenceLinkData(labelStr: string, linkRefs: LinkRefDataMap): LinkA
 }
 
 
+// Returns the link attributes of a shorcut, refernce or colapsed link as well as the index where the link ends
 function getReferenceLinks(linkText: string, textStream: string, startIndex: number, linkRefs: LinkRefDataMap):[LinkAttributes, number] {
 	let i = startIndex;
 	if (i === textStream.length-1 || textStream[i+1] !== '[') {
-		return [getReferenceLinkData(linkText, linkRefs), i];
+		return [getReferenceLinkData(linkText, linkRefs), i]; // shortcut links
 	}
 	
 	let [labelText, labelTextEndIndex] = getLabel(textStream, i+1);
 	if (labelText === null) {
 		return [{destination: null, title: null}, i];
 	}
-	let data = getReferenceLinkData(labelText, linkRefs);
-	if (!data.destination) {
+	let data = getReferenceLinkData(labelText, linkRefs); // reference links
+	if (!data.destination) { // shortcut links or collapsed refernece links
 		data = getReferenceLinkData(linkText, linkRefs)
 	}
 	return [data, labelTextEndIndex];
 }
 
+
+// Transforms openingNode and closingNode to either 'a' or 'img' html tags as appropriate
 function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: any): Node {
 	let linkAttributes:LinkAttributes;
 	let linkText = getEnclosedText(openingNode, closingNode)
@@ -276,6 +314,7 @@ function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: a
 	closingNode.type = "raw html"
 }
 
+// Changes all "link marker start" nodes before startNode parameter to "text content" nodes
 function closeAllOpenersUpstream(startNode: Node) {
 	let currentNode = startNode
 
@@ -287,6 +326,7 @@ function closeAllOpenersUpstream(startNode: Node) {
 	}
 }
 
+// Returns a string with all whitespace and all non-ascii characters escaped
 function urlEncode(text: string){
 	let output = "";
 	for (let char of text){
@@ -297,13 +337,15 @@ function urlEncode(text: string){
 	return output
 }
 
+/** Generates nodes containing html link tags from a textStream and adds the nodes into
+ * an already exisiting linked list. Parsing starts from a specified index in the textStream */
 export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs: LinkRefDataMap, startIndex: number) : [Node, number] {
 	let linkAttributes = {destination: "", title: ""}
 	const opener = getOpener(closer)
 	if (!opener)
 		return [null, -1];
 
-	let linkText = getEnclosedText(opener, closer);
+	let linkText = getEnclosedText(opener, closer); 
 	let i = startIndex;
 	if (i < textStream.length-2 && textStream[i+1] === "(") {
 		i+=2; // Destination parsing should start immediately after the '(' character
@@ -333,9 +375,9 @@ export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs:
 	}else {
 		linkAttributes.destination = urlEncode(linkAttributes.destination)
 		linkAttributes.title = linkAttributes.title && escapeSpecialCharacters(linkAttributes.title)
-		closeAllOpenersUpstream(opener.prev)
+		closeAllOpenersUpstream(opener.prev) // closes all unclosed markers before 'opener' node since links can't be nested
 		transformToLinkHtml(opener, closer, linkAttributes)
-		return [opener.content === "![" ? opener : closer, i];
+		return [opener.content === "![" ? opener : closer, i]; // `i` is the index where the link ends in the string
 	}	
 }
 
