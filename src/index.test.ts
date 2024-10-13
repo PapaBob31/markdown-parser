@@ -501,6 +501,48 @@ const tableHTMLBad = `<p>| <em>abc</em> | def |
 | bot |</p>
 `
 
+const tableText2 = `
+clap | abc ||
+| ---- | ---- | ---- |
+| bar | baz |
+| bot |
+| 1   | 2   | 3| 4 |
+nodelimiter
+`
+
+const tableHTML2 = `<table>
+  <thead>
+    <tr>
+      <th>clap</th>
+      <th>abc</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>bar</td>
+      <td>baz</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>bot</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>2</td>
+      <td>3</td>
+    </tr>
+    <tr>
+      <td>nodelimiter</td>
+      <td></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+`
+
 const noDelimiterRowTable = `
 | fruit | number |
 | Apple | 2 |
@@ -508,7 +550,7 @@ const noDelimiterRowTable = `
 | Bananas | 345|
 `
 
-const noTableOutput = `<p>| fruit | number |
+const noDelimiterTableOutput = `<p>| fruit | number |
 | Apple | 2 |
 | Oranges | 15 |
 | Bananas | 345|</p>
@@ -543,7 +585,8 @@ const properTableHtml = `<table>
 
 test("Table", ()=>{
   expect(parse(tableTextBad, true)).toBe(tableHTMLBad);
-  expect(parse(noDelimiterRowTable, true)).toBe(noTableOutput);
+  expect(parse(tableText2, true)).toBe(tableHTML2);
+  expect(parse(noDelimiterRowTable, true)).toBe(noDelimiterTableOutput);
   expect(parse(properTable, true)).toBe(properTableHtml)
 })
 

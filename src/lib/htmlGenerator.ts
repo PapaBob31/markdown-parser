@@ -36,7 +36,7 @@ export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 }
 
 
-// Serializes a line that contains *my markdown* table rows and return an array of the content
+// Serializes a line that contains a GFM table row and return an array of the content/cells
 function getRowContents(line: string){
 	let cellData = "";
 	let cells = [];
@@ -47,13 +47,12 @@ function getRowContents(line: string){
 		if (line[i] === '\\') {
 			charIsEscaped = true;
 		}else if (line[i] === '|' && !charIsEscaped) {
-			if (cellData) {
-				cells.push(cellData);
-				cellData = "";
-			}else if (cells.length > 0) { // pipes without any content in between isn't allowed i.e '||'
-				cells = [];
-				break;
-			}	
+			if (cells.length === 0 && (/\S/).test(cellData)) {
+				cells.push(cellData.trim()); // first cell in a row that's only whitespace must be delimited with '|'
+			}else if (cells.length > 0) {
+				cells.push(cellData.trim());
+			}
+			cellData = "";
 		}else {
 			if (charIsEscaped && line[i] !== '|') {
 				cellData += '\\' // only '|' can be escaped in tables
@@ -62,8 +61,8 @@ function getRowContents(line: string){
 			cellData += line[i]
 		}
 
-		if (i == line.length-1 && line[i] !== '|') { // row doesn't have a trailing '|' making it invalid
-			cells = [];
+		if (i == line.length-1 && line[i] !== '|' && (/\S/).test(cellData)) {
+			cells.push(cellData.trim()); // last cell in a row that's only whitespace must be delimited with '|'
 		}
 		i++;
 	}
@@ -89,13 +88,6 @@ interface TableData {
 	cellsAlignment: string[];
 }
 
-function stripSpace(text: string) {
-	if (text[0] === text[text.length-1] && text[0] === ' ') {
-		return text.slice(1, text.length-1)
-	}
-	return text
-}
-
 
 // Returns generated html table from the TableData object passed as a parameter
 function generateTableHtml(tableData: TableData, indentLevel: number){
@@ -106,7 +98,7 @@ function generateTableHtml(tableData: TableData, indentLevel: number){
 	for (let i=0; i < tableData.headerCells.length; i++) {
 		const alignment = tableData.cellsAlignment[i]
 		const cell = tableData.headerCells[i];
-		text += `${' '.repeat(indentLevel+6)}<th${alignment ? ' align='+alignment: ""}>${stripSpace(cell)}</th>\n`
+		text += `${' '.repeat(indentLevel+6)}<th${alignment ? ' align='+alignment: ""}>${cell}</th>\n` // trim?
 	}
 	text += `${' '.repeat(indentLevel+4)}</tr>\n`;
 	text += `${' '.repeat(indentLevel+2)}</thead>\n`
@@ -114,9 +106,10 @@ function generateTableHtml(tableData: TableData, indentLevel: number){
 	text += `${' '.repeat(indentLevel+2)}<tbody>\n`
 	for (let row of tableData.bodyCells) {
 		text += `${' '.repeat(indentLevel+4)}<tr>\n`
-		for (let i=0; i<row.length; i++) {
+		let generatedCellsLen = row.length < tableData.headerCells.length ? row.length : tableData.headerCells.length // number of cells in a row can't exceed that of the header row
+		for (let i=0; i<generatedCellsLen; i++) {
 			const alignment = tableData.cellsAlignment[i]
-			text += `${' '.repeat(indentLevel+6)}<td${alignment ? ' align='+alignment: ""}>${stripSpace(row[i])}</td>\n`
+			text += `${' '.repeat(indentLevel+6)}<td${alignment ? ' align='+alignment: ""}>${row[i]}</td>\n` // trim?
 		}
 		if (row.length < tableData.headerCells.length) {
 			text += (`${' '.repeat(indentLevel+6)}<td></td>\n`).repeat(tableData.headerCells.length - row.length)
@@ -156,7 +149,7 @@ function constructTableFrom(text: string, indentLevel: number) {
 				return "";
 			tableData.cellsAlignment = cells.map((cell) => getCellAlignment(cell))
 		}else if (cells.length === 0) { // Row doesn't conform to any of the table specification invalidating the whole table
-			return "";
+			return ""; // don't nullify the table
 		}else {
 			tableData.bodyCells.push(cells);
 		}
@@ -215,7 +208,7 @@ function parseContent(node: HtmlNode, linkRefs: LinkRefDataMap, dangerousHtmlTag
 	}
 }
 
-// Returnsa a boolean indicating if a node's grandparent is a loose list
+// Returns a boolean indicating if a node's grandparent is a loose list
 // node parameter expected is a leaf block type
 function listAncestorIsLoose(node: HtmlNode){
 	let listNodeAncestor = node.parentNode.parentNode;
@@ -225,7 +218,7 @@ function listAncestorIsLoose(node: HtmlNode){
 	return false;
 }
 
-/// Generates the html representation of a node
+// Generates the html representation of a node
 function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 	const whiteSpace = ' '.repeat(indentLevel); // indentation for node's generated html
 
