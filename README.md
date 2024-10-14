@@ -15,7 +15,7 @@ are filtered by default. Filtering is done by replacing the leading < with the e
 Pass `false` as the second parameter to parse to override this behaviour.
 
 ## Unsupported GFM features
-- Setext headers. Only Atx Headers will be parsed
+- [Setext headers](). Only Atx Headers will be parsed
 - '&' for invalid html entities aren't escaped. It will be parsed like normal text so far it conforms to the html entity syntax
 - [Task list items (extension)](https://github.github.com/gfm/#setext-headings)
 - [Autolinks (extension)](https://github.github.com/gfm/#autolinks-extension-)
@@ -50,3 +50,14 @@ Pass `false` as the second parameter to parse to override this behaviour.
    - [Hard line breaks](https://github.github.com/gfm/#hard-line-breaks)
    - [Soft line breaks](https://github.github.com/gfm/#soft-line-breaks)
    - [Textual content](https://github.github.com/gfm/#textual-content)
+
+
+## Some Notes on Tables
+Rows must be delimited by pipe characters (&verbar;).
+
+Any unescaped '&vert;' in a table row would be parsed as a table cell delimiter
+
+As a result, '&#124;' characters can't be used inside inlines (i.e code spans, html tags) present inside a table row.
+If you must use pipes in such contexts, replace pipes with any of the appropriate html entities such as `&VerticalLine`, `&verbar`, `&vert`, `&#124;`, `&x007C`
+
+It follows evry other rule of the GFM spec
