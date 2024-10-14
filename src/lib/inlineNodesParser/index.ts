@@ -12,6 +12,22 @@ export interface Node {
 	prev: Node|null;
 }
 
+export function escapeSpecialCharacters(text: string) {
+	let i=0;
+	let escapedText = ""
+
+	while (i < text.length){
+		if (PUNCTUATIONS.includes(text[i])) {
+			escapedText += getEscapedForm(text[i]);
+		}else {
+			escapedText += text[i];
+		}
+		i++;
+	}
+
+	return escapedText
+}
+
 // validates an array containing the parts of an html tag in order according to the html spec
 function isValidHtmlTag(components: string[]) {
 	let prevComponentType = "";
@@ -139,7 +155,7 @@ function processPossibleCodeSpan(startIndex: number, textStream: string): [strin
 	if ((/\S/).test(codeContent) && codeContent[0] === ' ' && codeContent[codeContent.length-1] === ' ') { // codeContent has valid leading and trailing spaces
 		codeContent = codeContent.slice(1, codeContent.length-1);
 	}
-	return [`<code>${codeContent}</code>`, codeSpanEnd];
+	return [`<code>${escapeSpecialCharacters(codeContent)}</code>`, codeSpanEnd];
 }
 
 // Adds a new node to or updates an existing Node inside the 
@@ -177,11 +193,11 @@ function getAutoLinkStr(startIndex: number, text: string) {
 function processAngleBracketMarker(text: string, bracketPos: number, forbiddenTagNames: string[]) : [string, number] {
 	let htmlTagEndPos = getHtmlTagEndPos(bracketPos, text, forbiddenTagNames);
 	if (htmlTagEndPos > -1) {
-		return [text.slice(bracketPos, htmlTagEndPos + 1), htmlTagEndPos];
+		return [text.slice(bracketPos, htmlTagEndPos + 1), htmlTagEndPos]; // come back to escape
 	}
 	let url = getAutoLinkStr(bracketPos, text);
 	if (url) {
-		let rawHtml = `<a href="${url}">${url}</a>`;
+		let rawHtml = `<a href="${escapeSpecialCharacters(url)}">${escapeSpecialCharacters(url)}</a>`;
 		return [rawHtml, bracketPos+url.length+1]; // bracketPos+url.length+1 : zero based addition ( + the 2 angle brackets acting as boundary for the autolink)
 	}
 	let matchedPattern = text.slice(bracketPos).match(/<!--(?!(?:>|->))[^]*-->/)
@@ -299,22 +315,6 @@ export function convertLinkedListToText(head: Node) {
 		currentNode = currentNode.next;
 	}
 	return outputText;
-}
-
-export function escapeSpecialCharacters(text: string) {
-	let i=0;
-	let escapedText = ""
-
-	while (i < text.length){
-		if (PUNCTUATIONS.includes(text[i])) {
-			escapedText += getEscapedForm(text[i]);
-		}else {
-			escapedText += text[i];
-		}
-		i++;
-	}
-
-	return escapedText
 }
 
 export default function parseInlineNodes(text: string, linkRefs: LinkRefDataMap, dangerousHtmlTags: string[]): string {

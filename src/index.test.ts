@@ -286,7 +286,7 @@ ookfoer</p>
   </blockquote>
 </blockquote>
 <p><code>normal code span na</code>344 <code>test</code> shi</p>
-<p>Hey man, all I'm saying is <code>console.log &copy;</code> is a better name than <code>print</code>. Template literals in js start with <code>\`</code></p>
+<p>Hey man, all I'm saying is <code>console.log &amp;copy;</code> is a better name than <code>print</code>. Template literals in js start with <code>\`</code></p>
 <p>this is bad syntax <code>1 + 2 ===  3</code></p>
 <p>They ought to be on the same line <a href="google.com" title="google&apos;s website">link text</a>(blah)</p>
 <p><code>yes code</code></p>
@@ -502,12 +502,12 @@ const tableHTMLBad = `<p>| <em>abc</em> | def |
 `
 
 const tableText2 = `
-clap | abc ||
+|clap | abc ||
 | ---- | ---- | ---- |
 | bar | baz |
 | bot |
 | 1   | 2   | 3| 4 |
-nodelimiter
+|nodelimiter|
 `
 
 const tableHTML2 = `<table>
@@ -556,14 +556,43 @@ const noDelimiterTableOutput = `<p>| fruit | number |
 | Bananas | 345|</p>
 `
 
+const nestedInsideList = `
+- | fruit | number |
+  | ----- | ----- |
+  | Oranges | 15 |
+`
+
+const nestedInsideListOutput = `<ul>
+  <li>
+    <table>
+      <thead>
+        <tr>
+          <th>fruit</th>
+          <th>number</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Oranges</td>
+          <td>15</td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+</ul>
+`
+
 const properTable = `
+pasta
 | ab\\|c | def |
 | --- | --- |
 | bar | baz |
 | bot | cab |
+pasta
 `
 
-const properTableHtml = `<table>
+const properTableHtml = `<p>pasta</p>
+<table>
   <thead>
     <tr>
       <th>ab|c</th>
@@ -581,6 +610,22 @@ const properTableHtml = `<table>
     </tr>
   </tbody>
 </table>
+<p>pasta</p>
+`
+
+const pipeInInlines = `
+| shi \`|\`|
+|-------|---|
+`
+
+const pipeInInlinesOutput = `<table>
+  <thead>
+    <tr>
+      <th>shi \`</th>
+      <th>\`</th>
+    </tr>
+  </thead>
+</table>
 `
 
 test("Table", ()=>{
@@ -588,6 +633,7 @@ test("Table", ()=>{
   expect(parse(tableText2, true)).toBe(tableHTML2);
   expect(parse(noDelimiterRowTable, true)).toBe(noDelimiterTableOutput);
   expect(parse(properTable, true)).toBe(properTableHtml)
+  expect(parse(nestedInsideList, true)).toBe(nestedInsideListOutput)
 })
 
 const linkTest = `

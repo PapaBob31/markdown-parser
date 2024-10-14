@@ -14,7 +14,7 @@ export function getValidOpenedAncestor(node: HtmlNode, indentLevel: number): Htm
 
 // Returns the inner most open leaf block of a container block or the container block itself
 export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode{
-	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block"];
+	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block", "table"];
 	let lastChildNode = node.children[node.children.length - 1]; // only the last child of a node can be unclosed
 	if (!lastChildNode) {
 		return node
@@ -33,7 +33,7 @@ export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode{
 // Returns the first node in a node's descendants that can be closed by a blank line or
 // returns the node itself if the node has no child
 export function getFirstClosableChildNode(node: HtmlNode): any {
-	const targets = ["paragraph", "html block", "blockquote"]
+	const targets = ["paragraph", "html block", "blockquote", "table"]
 	let lastChild = node.children[node.children.length - 1]; // only the last child of a node can be unclosed
 
 	if (!lastChild || (lastChild && lastChild.closed)) {
@@ -68,36 +68,36 @@ function lineIsHorizontalRule(line: string) {
 
 // Returns the position and the meaning of special markdown character found on a line
 export function getLineSemantics(line: string): [string, number] {
-	let nodeName;
+	let markerMeaning;
 	let markerPos:number;
 
 	if ((/^\s*>/).test(line)) {
 		markerPos = line.indexOf('>');
-		nodeName = "blockquote"
+		markerMeaning = "blockquote"
 	}else if ((/^\s*#{1,6}\s/).test(line)) {
 		markerPos = line.indexOf('#')
-		nodeName = "header"
+		markerMeaning = "header"
 	}else if ((/^\s*`{3,}[^`]*$/).test(line)) {
 		markerPos = line.indexOf('`');
-		nodeName = "fenced code";
+		markerMeaning = "fenced code";
 	}else if (lineIsHorizontalRule(line)){
-		nodeName = "hr";
+		markerMeaning = "hr";
 		markerPos = line.search(/\S/)
 	}else if ((/^\s*</).test(line)) {
-		nodeName = "html block"; // possibly
+		markerMeaning = "html block"; // possibly
 		markerPos = line.indexOf('<');
 	}else {
 		let listMarkerDetails = (/^(\s*)(\d{1,9}(?:\.|\)))\s+/).exec(line) || (/^(\s*)(-|\+|\*)\s+/).exec(line);
 		if (listMarkerDetails) {
 			markerPos = listMarkerDetails[1].length;
 			if (("+-*").includes(listMarkerDetails[2])) {
-				nodeName = "ul-li"
-			}else nodeName = "ol-li";
+				markerMeaning = "ul-li"
+			}else markerMeaning = "ol-li";
 		}else {
-			nodeName = "plain text";
+			markerMeaning = "plain text";
 			markerPos = line.search(/\S/);
 		};
 	}
 	
-	return [nodeName, markerPos];
+	return [markerMeaning, markerPos];
 }

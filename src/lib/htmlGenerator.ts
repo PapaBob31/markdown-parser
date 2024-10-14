@@ -3,6 +3,8 @@ import parseInlineNodes, { PUNCTUATIONS, escapeSpecialCharacters } from "./inlin
 import { getLinkReferenceDefs } from "./inlineNodesParser/linkGenerator"
 import type {LinkRefData, LinkRefDataMap} from "./inlineNodesParser/linkGenerator"
 
+const validEntityRefs = require('./entities.json')
+
 
 // Traverses a tree to extract all link refernece definitions in the tree
 export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
@@ -37,19 +39,23 @@ export function traverseTreeToGetLinkRefs(rootNode: HtmlNode) {
 
 
 // Serializes a line that contains a GFM table row and return an array of the content/cells
-function getRowContents(line: string){
+export function getRowContent(line: string){
+	let contentRange = false;
+	let charIsEscaped = false;
 	let cellData = "";
 	let cells = [];
 	let i = 0;
-	let charIsEscaped = false
 
 	while (i < line.length) {
 		if (line[i] === '\\') {
 			charIsEscaped = true;
 		}else if (line[i] === '|' && !charIsEscaped) {
-			if (cells.length === 0 && (/\S/).test(cellData)) {
-				cells.push(cellData.trim()); // first cell in a row that's only whitespace must be delimited with '|'
-			}else if (cells.length > 0) {
+			if (!contentRange) {
+				if ((/\S/).test(cellData))
+					break;
+				else
+					contentRange = true;
+			}else if (contentRange) {
 				cells.push(cellData.trim());
 			}
 			cellData = "";
@@ -61,10 +67,11 @@ function getRowContents(line: string){
 			cellData += line[i]
 		}
 
-		if (i == line.length-1 && line[i] !== '|' && (/\S/).test(cellData)) {
-			cells.push(cellData.trim()); // last cell in a row that's only whitespace must be delimited with '|'
+		if (i == line.length-1 && line[i] !== '|' && (/\S/).test(cellData)) { // last cell has no trailing pipe
+			cells = []; // invalidate the whole row
 		}
 		i++;
+
 	}
 	return cells
 }
@@ -90,7 +97,7 @@ interface TableData {
 
 
 // Returns generated html table from the TableData object passed as a parameter
-function generateTableHtml(tableData: TableData, indentLevel: number){
+function generateTableHtml(tableData: TableData, indentLevel: number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]){
 	let text = `${' '.repeat(indentLevel)}<table>\n`
 	text += `${' '.repeat(indentLevel+2)}<thead>\n`
 	text += `${' '.repeat(indentLevel+4)}<tr>\n`;
@@ -98,7 +105,7 @@ function generateTableHtml(tableData: TableData, indentLevel: number){
 	for (let i=0; i < tableData.headerCells.length; i++) {
 		const alignment = tableData.cellsAlignment[i]
 		const cell = tableData.headerCells[i];
-		text += `${' '.repeat(indentLevel+6)}<th${alignment ? ' align='+alignment: ""}>${cell}</th>\n` // trim?
+		text += `${' '.repeat(indentLevel+6)}<th${alignment ? ' align='+alignment: ""}>${parseInlineNodes(cell, linkRefs, dangerousHtmlTags)}</th>\n`
 	}
 	text += `${' '.repeat(indentLevel+4)}</tr>\n`;
 	text += `${' '.repeat(indentLevel+2)}</thead>\n`
@@ -109,7 +116,7 @@ function generateTableHtml(tableData: TableData, indentLevel: number){
 		let generatedCellsLen = row.length < tableData.headerCells.length ? row.length : tableData.headerCells.length // number of cells in a row can't exceed that of the header row
 		for (let i=0; i<generatedCellsLen; i++) {
 			const alignment = tableData.cellsAlignment[i]
-			text += `${' '.repeat(indentLevel+6)}<td${alignment ? ' align='+alignment: ""}>${row[i]}</td>\n` // trim?
+			text += `${' '.repeat(indentLevel+6)}<td${alignment ? ' align='+alignment: ""}>${parseInlineNodes(row[i], linkRefs, dangerousHtmlTags)}</td>\n`
 		}
 		if (row.length < tableData.headerCells.length) {
 			text += (`${' '.repeat(indentLevel+6)}<td></td>\n`).repeat(tableData.headerCells.length - row.length)
@@ -125,7 +132,7 @@ function generateTableHtml(tableData: TableData, indentLevel: number){
 /** Returns the html table representation of a string conforming to *my markdown* table spec
  * @param {text} : text that the html table would be generated from
  * @param {indentLevel} : number indicating how many spaces the table should indented when generated */
-function constructTableFrom(text: string, indentLevel: number) {
+function constructTableFrom(text: string, indentLevel: number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]) {
 	const tableData:TableData = {headerCells: [], bodyCells: [], cellsAlignment: []}
 	let tableRows = text.split(/(?:\r\n)|\n|\r/);
 
@@ -136,7 +143,7 @@ function constructTableFrom(text: string, indentLevel: number) {
 	if (tableRows[0] == text)
 		return "";
 	for (let i=0; i<tableRows.length; i++) {
-		const cells = getRowContents(tableRows[i])
+		const cells = getRowContent(tableRows[i])
 		if (cells.length === 0) {
 			return "";
 		}
@@ -148,21 +155,18 @@ function constructTableFrom(text: string, indentLevel: number) {
 			if (cells.length === 0 || cells.length !== tableData.headerCells.length || !cellsAreDelimiters(cells)) // Row isn't a `delimiter row`
 				return "";
 			tableData.cellsAlignment = cells.map((cell) => getCellAlignment(cell))
-		}else if (cells.length === 0) { // Row doesn't conform to any of the table specification invalidating the whole table
-			return ""; // don't nullify the table
 		}else {
 			tableData.bodyCells.push(cells);
 		}
 	}
-	return generateTableHtml(tableData, indentLevel);
+	return generateTableHtml(tableData, indentLevel, linkRefs, dangerousHtmlTags);
 }
 
 export function formsValidCharRef(text: string, index: number) { // we still need to do decimal and hexadecimal references
 	let ref = ""
-	let validRefs: string[] = ["amp", "copy", "lg", "gt", "lt", "apos", "quot"]; // get the rest from the html spec or maybe not
 
 	for (let i=index+1; i<text.length; i++) {
-		if ((/\s/).test(text[i])){
+		if ((/\s|&/).test(text[i])){ // html entities don't contain ampersands or whitespace
 			return false;
 		}else if (text[i] === ';') {
 			break;
@@ -172,7 +176,7 @@ export function formsValidCharRef(text: string, index: number) { // we still nee
 		}
 		ref += text[i];
 	}
-	if (validRefs.includes(ref)) {
+	if ((/^#\d{1,7}$/).test(ref) || (/^(?:x|X)[a-fA-F0-9]{1,6}$/).test(ref) || validEntityRefs['&'+ref.toLowerCase()+';']) {
 		return true;
 	}
 	return false
@@ -193,12 +197,14 @@ function removeInvalidCharRef(textStream: string) {
 }
 
 // parse the content of leaf blocks for inline nodes and unescaped html tags
-function parseContent(node: HtmlNode, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]) {
+function parseContent(node: HtmlNode, indentLevel:number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]) {
 	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName)) {
 		node.textContent = parseInlineNodes(node.textContent as string, linkRefs, dangerousHtmlTags);
 		if ((/h[1-6]/).test(node.nodeName))  {
 			node.textContent = node.textContent.trimLeft();
 		}
+	}else if (node.nodeName === "table") {
+		node.textContent = constructTableFrom(node.textContent, indentLevel, linkRefs, dangerousHtmlTags)
 	}else if (["indented code block", "fenced code"].includes(node.nodeName)) {
 		node.textContent = escapeSpecialCharacters(node.textContent)
 	}
@@ -225,13 +231,11 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 	if (node.nodeName === "html block") {
 		return `${whiteSpace}${node.textContent}\n`
 	}else if (node.nodeName === "paragraph") {
-		let tableHtml = constructTableFrom(node.textContent, indentLevel);
-		if (tableHtml) {
-			return tableHtml;
-		}
 		if (node.parentNode.nodeName !== "li" || listAncestorIsLoose(node))
 			return node.textContent ? `${whiteSpace}<p>${node.textContent}</p>\n` : "";
 		return node.textContent ? `${whiteSpace}${node.textContent}\n` : ""; // Paragraph nodes inside tight lists should be rendered without tags
+	}else if (node.nodeName === "table") {
+		return node.textContent;
 	}else if ((/h[1-6]/).test(node.nodeName)) {
 		const tag = node.nodeName;
 		return `${whiteSpace}<${tag}>${node.textContent}</${tag}>\n` // html header
@@ -269,7 +273,7 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 			text += `${generateHtmlFromTree(childNode, indentLevel, linkRefs, dangerousHtmlTags)}`;
 		}
 	}else { // rootNode is a leaf block
-		parseContent(rootNode, linkRefs, dangerousHtmlTags)
+		parseContent(rootNode, indentLevel, linkRefs, dangerousHtmlTags)
 		text = generateNodeHtml(rootNode, indentLevel);
 	}
 

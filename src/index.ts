@@ -24,3 +24,10 @@ export default function parse(textStream: string, escapeDangerousHtml: boolean =
 	const generatedHtml = generateHtmlFromTree(root, 0, linkRefs, dangerousHtml)
 	return generatedHtml;
 }
+
+/* Things you might warn user about in case you add error logging 
+Excess Table rows
+Invalid html entities
+inline tags wrapping around single non-void tags
+
+*/
