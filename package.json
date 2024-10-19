@@ -1,13 +1,14 @@
 {
-  "name": "markdown-parser",
+  "name": "markdown-to-html",
   "version": "1.0.0",
   "description": "\"library for parsing markdown according to a subset of the github flavored markdown spec\"",
-  "main": "index.js",
+  "main": "./src/dist/index.js",
+  "files": ["/src/dist/", "!**/*.test.js"],
   "scripts": {
     "test": "vitest"
   },
   "author": "egbebitimi121@gmail.com",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@types/node": "^22.5.0"
   },
