@@ -30,4 +30,6 @@ Excess Table rows
 Invalid html entities
 inline tags wrapping around single non-void tags
 
+Add variables?
+
 */
