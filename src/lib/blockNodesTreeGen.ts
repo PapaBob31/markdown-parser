@@ -21,7 +21,7 @@ function getHeaderNodeObj(line: string, lastOpenedNode: HtmlNode): HtmlNode {
 }
 
 // Adds a node representing an html leaf block (as per gfm spec) to the document tree
-function addLeafBlocksContent(lastOpenedNode: HtmlNode, nodeName: string, line: string, htmlBlockType: string) {
+function addLeafBlocksContent(lastOpenedNode: HtmlNode, nodeName: string, line: string, htmlBlockType: string) { 
 	if (nodeName === "header") {
 		lastOpenedNode.children.push(getHeaderNodeObj(line, lastOpenedNode))
 	}else if (nodeName === "hr") {
@@ -99,11 +99,14 @@ function getHtmlBlockType(line: string) {
 	}
 }
 
-// Adds a new Html leaf blcok node to the tree or updates an existing one
+// Adds a new Html leaf block node to the tree or updates an existing one
 function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: number, nodeName: string):void {
 	let lastOpenedContainer = getInnerMostOpenContainer(lastOpenedNode)
-	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block", "table"]
+	let multilineLeafBlocks = ["html block", "paragraph", "fenced code backtick", "fenced code tilde", "indented code block", "table"]
 
+	if (lastOpenedNode.nodeName === "li" && lastOpenedNode.indentLevel != 0){
+		line = line.slice(lastOpenedNode.indentLevel)
+	}
 	let htmlBlockType = "";
 	if (lastOpenedContainer.nodeName !== "html block" && nodeName === "html block"){
 		htmlBlockType = getHtmlBlockType(line.slice(markerPos)) // more thorough check to know which type of html block it is
@@ -111,12 +114,12 @@ function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: n
 			nodeName = "plain text";
 		}
 	}else if (nodeName === "indented code block") {
-		line = line.slice(markerPos-3); // remove leading whitespace used to mark the line as part of indented code block
+		line = line.slice(4); // remove leading whitespace used to mark the line as part of indented code block
 	}else if (nodeName === "plain text" && lastOpenedContainer.nodeName === "table" && getRowContent(line).length > 0) {
 		nodeName = "table"
 	}
 
-	if (nodeName === "fenced code" || lastOpenedContainer.nodeName === "fenced code") {
+	if (nodeName.startsWith("fenced code") || lastOpenedContainer.nodeName.startsWith("fenced code")) {
 		// unclosed fenced code blocks override the creation of new child nodes in it's parent
 		addFencedCodeContent(lastOpenedNode, line)	
 	}else if (lastOpenedContainer.nodeName === "table" && nodeName !== "table") {
@@ -132,26 +135,67 @@ function continueLeafBlocks(lastOpenedNode: HtmlNode, line: string, markerPos: n
 			}
 		}
 		if (lastOpenedContainer.nodeName === "indented code block")
-			line = line.slice(markerPos-3); // remove leading whitespace used to mark the line as part of indented code block
+			line = line.slice(4); // remove leading whitespace used to mark the line as part of indented code block
 		lastOpenedContainer.textContent += '\n' + line // continue whatever leaf block was opened
 	}
+}
+
+function getFirstWord(str: string) {
+	let wordStart = false
+	let word = ""
+	let charIsEscaped = false
+	for (let char of str) {
+		if (!charIsEscaped && char === "\\"){
+			charIsEscaped = true
+			continue;
+		}
+
+		if (!wordStart && (/[^\\<>;,.()[\]{}!`~+\-_!=*&^%$#@"':?~|\s]/).test(char)) {
+			wordStart = true
+		}else if (wordStart && (/[\\<>;,.()[\]{}!`~+\-_!=*&^%$#@"':?~|\s]/).test(char) && !charIsEscaped) {
+			break;
+		}
+		if (wordStart)
+			word += char;
+
+		if (charIsEscaped)
+			charIsEscaped = false
+	}
+	return word;
 }
 
 // Adds a new fenced code block node to the document tree or updates an existing one in the tree
 function addFencedCodeContent(lastOpenedNode: HtmlNode, line: string){
 	let lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
-	let fenceDetails = line.match(/(`+)(.+)?/) as RegExpMatchArray; // the delimiter for the fenced code block
+	let nodeName = ""
 
+	let fenceDetails = line.match(/(`+)(.+)?/)  as RegExpMatchArray; // the delimiter for the fenced code block
+	if (fenceDetails) {
+		nodeName = "fenced code backtick"
+	}else {
+		fenceDetails = line.match(/(~+)(.+)?/)
+		if (fenceDetails) {
+			nodeName = "fenced code tilde"
+		}
+	}
+	
 	if (fenceDetails) {
 		let fenceLength = fenceDetails[1].length
-		if (!lastChild || lastChild.nodeName !== "fenced code") {
-			let infoString = (fenceDetails[2] || "");
+		if (!lastChild || !lastChild.nodeName.startsWith("fenced code")) {
+			let infoString = (getFirstWord(fenceDetails[2]) || "");
+
 			lastOpenedNode.children.push(
-				{parentNode: lastOpenedNode, nodeName: "fenced code", fenceLength, closed: false, textContent: "", infoString, children: []}
+				{parentNode: lastOpenedNode, nodeName, fenceLength, closed: false, textContent: "", infoString, children: []}
 			)
-		}else if (((lastChild.fenceLength as number) <= fenceLength) && !fenceDetails[2]) {
+		}else if (nodeName === lastChild.nodeName && ((lastChild.fenceLength as number) <= fenceLength) && !fenceDetails[2]) {
 			lastChild.closed = true;
-		}else lastChild.textContent += '\n' + line;
+		}/*else if (lastChild.textContent === "") {
+			lastChild.textContent = line;
+		}else {
+			lastChild.textContent += '\n' + line;
+		}*/
+	}else if (lastChild.textContent === "") {
+		lastChild.textContent = line; // just following the common marks spec here
 	}else {
 		lastChild.textContent += '\n' + line;
 	}
@@ -181,7 +225,9 @@ function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, m
 	}else parentNodeName = "ul"
 
 	let markerWidth, markerPattern;
+
 	let listItemPattern = line.match(/(\s*)(\d{1,9}(?:\.|\)))(\s*)/) || line.match(/(\s*)(\*|\+|-)(\s*)/) as RegExpMatchArray;
+	
 	if (listItemPattern[3].length >= 4) {
 		markerWidth = listItemPattern[2].length + 1;
 	}else markerWidth = listItemPattern[2].length + listItemPattern[3].length;
@@ -196,16 +242,16 @@ function addListItem(nodeName: string, lastOpenedNode: HtmlNode, line: string, m
 		)
 		lastChild = lastOpenedNode.children[lastOpenedNode.children.length - 1];
 	}
-	// The list item indent level set localises mutations of nodes to below the list item node 
+	// The list item indent level that was set localises mutations of nodes to below the list item node 
 	// when parsing the remaining content of the line conatining the list marker incase there are other block contents on the same line
 	lastChild.children.push({parentNode: lastChild, nodeName: "li", indentLevel: 0, closed: false, children: []})
 	lastOpenedNode = lastChild.children[lastChild.children.length - 1];
 
 	// parse the content of the line apart from the marker incase of nested block nodes
-	let openedNestedNode:HtmlNode = parseLine(line.slice(markerPos + markerWidth), lastOpenedNode, unParsed);
+	let openedNestedNode:HtmlNode = parseLine(line.slice(line.search(RegExp(listItemPattern[2])) + markerWidth), lastOpenedNode, unParsed);
 	if (unParsed.potContentType)
-		unParsed.startPos += (markerPos + markerWidth);
-	lastOpenedNode.indentLevel = markerPos + markerWidth; // actual indent level to be used for nested nodes
+		unParsed.startPos += (listItemPattern[1].length + markerWidth);
+	lastOpenedNode.indentLevel = listItemPattern[1].length + markerWidth; // actual indent level to be used for nested nodes
 	if (lastOpenedNode !== openedNestedNode) {
 		lastOpenedNode = openedNestedNode;
 	}
@@ -302,7 +348,19 @@ function addOrUpdateBlockQuote(line: string, markerPos: number, lastOpenedNode: 
 	openedBlockQuote.indentLevel = 0;
 
 	// incase the line's content has other nested block nodes that will be nested in the blockquote
-	parseLine(line.slice(markerPos+1), openedBlockQuote, unParsed);
+	line = line.slice(markerPos+1).replace(/^\s*/, (match)=>{
+		let str = ""
+
+		for (let char of match) {
+			if (char === ' ') {
+				str += char
+			}else if (char === '\t') {
+				str += (' ').repeat(3);
+			}
+		}
+		return str
+	})
+	parseLine(line, openedBlockQuote, unParsed);
 
 	openedBlockQuote.nodeName = "blockquote"; // restore to actual value
 	openedBlockQuote.indentLevel = actualIndentLevel; // restore to actual value
@@ -327,8 +385,8 @@ function getActualMeaning(content: string, markerMeaning: string, lastUnclosedNo
 		}
 	}
 
-	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block"];
-	if (couldStartIndentedCode) {
+	let multilineLeafBlocks = ["html block", "paragraph", "fenced code backtick", "fenced code tilde", "indented code block"];
+	if (couldStartIndentedCode && !(/^\S/).test(content)) {
 		if (!multilineLeafBlocks.includes(lastUnclosedNode.nodeName)) { // indented code blocks can't interrupt those leaf blocks
 			return "indented code block";
 		}else {
@@ -361,12 +419,52 @@ function parseLine(line: string, lastOpenedNode: HtmlNode, unParsed: unParsedCon
 	if (newLastOpenedNode)
 		return newLastOpenedNode;	
 
-	// tab characters should be replaced with 4 spaces
-	line = line.replace(/^\t+/, (match)=>{
-		return (' ').repeat(match.length*4);
-	})
+	// tab characters at the beginning of a line if any, is replaced
+	// with tab stop of 4 spaces incase they are used to define block structures
+	// line = line.replace(/^\s*/, (match)=>{
+	// 	let str = ""
+	// 	let spaceIntervalCount = 0
+
+	// 	for (let char of match) {
+	// 		if (char === ' ') {
+	// 			str += char
+	// 			spaceIntervalCount++;
+	// 		}else if (char === '\t') {
+	// 			str += (' ').repeat(4-spaceIntervalCount);
+	// 		}
+
+	// 		if (char === '\t' || spaceIntervalCount === 4) {
+	// 			spaceIntervalCount = 0
+	// 		}
+	// 	}
+	// 	return str
+	// })
 	
 	let [markerMeaning, markerPos] = getLineSemantics(line);
+
+	let newLine = ""
+	let newMarkerPos = 0
+
+	for (let i=0; i<line.length; i++) {
+		if (i <= markerPos) { // what if markerPos is last character?
+			if (line[i] === '\t') {
+				if (newLine.length === 4)
+					newLine += (' ').repeat(4)
+				else
+					newLine += (' ').repeat(4 - (newLine.length % 4))
+			}else {
+				newLine += line[i]
+			}
+			if (i === markerPos) {
+				newMarkerPos = newLine.length-1
+			}
+		}else { // what if this else never runs?
+			newLine += line.slice(i)
+			break;
+		}
+	}
+	markerPos = newMarkerPos
+	line = newLine;
 
 	let openedInnerChild = getInnerMostOpenContainer(lastOpenedNode)
 
@@ -403,7 +501,7 @@ function parseLine(line: string, lastOpenedNode: HtmlNode, unParsed: unParsedCon
 		markerMeaning = "plain text"
 	}
 
-	if (["html block", "fenced code"].includes(openedInnerChild.nodeName)) {
+	if (["html block", "fenced code tilde", "fenced code backtick"].includes(openedInnerChild.nodeName)) {
 		// "html block" and "fenced code" nodes have to be closed before another child node can be added to their respective parents
 		continueLeafBlocks(lastOpenedNode, line, markerPos, "plain text");
 	}else if (!["ol-li", "ul-li", "blockquote"].includes(markerMeaning)) {
@@ -429,7 +527,7 @@ function parseLine(line: string, lastOpenedNode: HtmlNode, unParsed: unParsedCon
 export default function generateBlockNodesTree(textStream: string, dangerousHtml: string[]) {
 	let rootNode:HtmlNode = {parentNode: null as any, nodeName: "root", indentLevel: 0, closed: false, children: []};
 	let lastOpenedNode = rootNode;
-	const lines = textStream.split('\n');
+	const lines = textStream.split('\n');// \r?
 	let unParsed = {potContentType: "", content: "", startPos: -1}
 	dangerousHtmlTags = dangerousHtml;
 

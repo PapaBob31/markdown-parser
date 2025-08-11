@@ -14,7 +14,7 @@ export function getValidOpenedAncestor(node: HtmlNode, indentLevel: number): Htm
 
 // Returns the inner most open leaf block of a container block or the container block itself
 export function getInnerMostOpenContainer(node:HtmlNode):HtmlNode{
-	let multilineLeafBlocks = ["html block", "paragraph", "fenced code", "indented code block", "table"];
+	let multilineLeafBlocks = ["html block", "paragraph", "fenced code backtick", "fenced code tilde", "indented code block", "table"];
 	let lastChildNode = node.children[node.children.length - 1]; // only the last child of a node can be unclosed
 	if (!lastChildNode) {
 		return node
@@ -80,6 +80,9 @@ export function getLineSemantics(line: string): [string, number] {
 	}else if ((/^\s*`{3,}[^`]*$/).test(line)) {
 		markerPos = line.indexOf('`');
 		markerMeaning = "fenced code";
+	}else if ((/^\s*~{3,}[^~]*$/).test(line)) {
+		markerPos = line.indexOf('~');
+		markerMeaning = "fenced code";
 	}else if (lineIsHorizontalRule(line)){
 		markerMeaning = "hr";
 		markerPos = line.search(/\S/)
@@ -89,7 +92,7 @@ export function getLineSemantics(line: string): [string, number] {
 	}else {
 		let listMarkerDetails = (/^(\s*)(\d{1,9}(?:\.|\)))\s+/).exec(line) || (/^(\s*)(-|\+|\*)\s+/).exec(line);
 		if (listMarkerDetails) {
-			markerPos = listMarkerDetails[1].length;
+			markerPos = listMarkerDetails[0].length-1;
 			if (("+-*").includes(listMarkerDetails[2])) {
 				markerMeaning = "ul-li"
 			}else markerMeaning = "ol-li";

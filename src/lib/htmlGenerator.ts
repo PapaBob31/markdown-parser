@@ -162,7 +162,7 @@ function constructTableFrom(text: string, indentLevel: number, linkRefs: LinkRef
 	return generateTableHtml(tableData, indentLevel, linkRefs, dangerousHtmlTags);
 }
 
-export function formsValidCharRef(text: string, index: number) { // we still need to do decimal and hexadecimal references
+export function formsValidCharRef(text: string, index: number) { // Still need to do decimal and hexadecimal references
 	let ref = ""
 
 	for (let i=index+1; i<text.length; i++) {
@@ -188,7 +188,7 @@ function removeInvalidCharRef(textStream: string) {
 	let output = ""
 	for (let i=0; i<textStream.length; i++){
 		if (textStream[i] === '&' && !formsValidCharRef(textStream, i)) {
-			output += "&amp;"
+			output += "&amp;" // possibly warn that such cahracter doesn't exist incase they were trying to use that
 			continue;
 		}
 		output += textStream[i];
@@ -200,16 +200,14 @@ function removeInvalidCharRef(textStream: string) {
 function parseContent(node: HtmlNode, indentLevel:number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]) {
 	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName)) {
 		node.textContent = parseInlineNodes(node.textContent as string, linkRefs, dangerousHtmlTags);
-		if ((/h[1-6]/).test(node.nodeName))  {
-			node.textContent = node.textContent.trimLeft();
-		}
+		node.textContent = node.textContent.trimLeft();
 	}else if (node.nodeName === "table") {
 		node.textContent = constructTableFrom(node.textContent, indentLevel, linkRefs, dangerousHtmlTags)
-	}else if (["indented code block", "fenced code"].includes(node.nodeName)) {
+	}else if (["indented code block", "fenced code backtick", "fenced code tilde"].includes(node.nodeName)) {
 		node.textContent = escapeSpecialCharacters(node.textContent)
 	}
 
-	if (!["indented code block", "fenced code"].includes(node.nodeName) && node.textContent) {
+	if (!["indented code block", "fenced code backtick", "fenced code tilde"].includes(node.nodeName) && node.textContent) {
 		node.textContent = removeInvalidCharRef(node.textContent);
 	}
 }
@@ -226,6 +224,26 @@ function listAncestorIsLoose(node: HtmlNode){
 
 // Generates the html representation of a node
 function generateNodeHtml(node: HtmlNode, indentLevel: number) {
+	if (node.nodeName === "html block") {
+		return `${node.textContent}\n`
+	}else if (node.nodeName === "paragraph") {
+		if (node.infoString === "loose") {
+			return node.textContent ? `<p>${node.textContent}</p>\n` : "";
+		}else {
+			return node.textContent;
+		}
+	}else if (node.nodeName === "table") {
+		return node.textContent;
+	}else if ((/h[1-6]/).test(node.nodeName)) {
+		const tag = node.nodeName;
+		return `<${tag}>${node.textContent}</${tag}>\n` // html header
+	}else if (node.nodeName.startsWith("fenced code") || node.nodeName === "indented code block") {
+		return `<pre><code${node.infoString ? (" class=\"language-"+node.infoString+'"') : ''}>${node.textContent + '\n'}</code></pre>\n`
+	}
+}
+
+// Generates the formatted html representation of a node
+function generateNodeHtmlPretty(node: HtmlNode, indentLevel: number) {
 	const whiteSpace = ' '.repeat(indentLevel); // indentation for node's generated html
 
 	if (node.nodeName === "html block") {
@@ -239,8 +257,11 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 	}else if ((/h[1-6]/).test(node.nodeName)) {
 		const tag = node.nodeName;
 		return `${whiteSpace}<${tag}>${node.textContent}</${tag}>\n` // html header
-	}else if (node.nodeName === "fenced code" || node.nodeName === "indented code block") {
-		return `${whiteSpace}<pre class="${node.infoString || ''}">\n${whiteSpace+'  '}<code>${node.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
+	}else if (node.nodeName.startsWith("fenced code") || node.nodeName === "indented code block") {
+		return (
+			`${whiteSpace}<pre>\n${whiteSpace+'  '}`+
+			`<code${node.infoString ? (" class="+node.infoString+'"') : ''}">${node.textContent}\n${whiteSpace+'  '}</code>\n${whiteSpace}</pre>\n`
+		)
 	}
 }
 
@@ -250,7 +271,7 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
  * @param {indentLevel} : The number of spaces to be used for indentation when generating content
  * @param {linkRefs} : key-value mappings of link label and link label reference definitions 
  * @param {dangerousHtmlTags} : array of strings containing tag names that would be considered dangerous html */
-export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]):string {
+export function generateHtmlFromTreePretty(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]):string {
 	let text = "";
 	const whiteSpace = ' '.repeat(indentLevel); // indentation for node's generated html
 
@@ -275,10 +296,104 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 	}else { // rootNode is a leaf block
 		parseContent(rootNode, indentLevel, linkRefs, dangerousHtmlTags)
 		text = generateNodeHtml(rootNode, indentLevel);
+		console.log(text)
 	}
 
 	if (rootNode.textContent === undefined && rootNode.nodeName !== "root") {
 		text += `${whiteSpace}</${rootNode.nodeName}>\n`; // Generate the closing tag for the node
+	}
+	
+	return text;
+}
+
+
+
+
+/** Generates html text from a tree containing markdown blocks as nodes
+ * @param {rootNode} : The root node of the tree 
+ * @param {indentLevel} : The number of spaces to be used for indentation when generating content
+ * @param {linkRefs} : key-value mappings of link label and link label reference definitions 
+ * @param {dangerousHtmlTags} : array of strings containing tag names that would be considered dangerous html */
+export function generateHtmlFromTree1(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]):string {
+	let text = "";
+
+	// Generate the opening tag for the node
+	if (rootNode.nodeName === "hr") {
+		return `<${rootNode.nodeName}/>\n`
+	}else if (rootNode.nodeName === "ol") {
+		text = `<${rootNode.nodeName} start="${rootNode.startNo}">\n`	
+	}else if (rootNode.textContent === undefined) {
+		text = `<${rootNode.nodeName}>\n`;
+	}
+
+	if (rootNode.textContent === undefined) { // rootNode is a container block
+		if (rootNode.nodeName === "root") // the root node of the tree
+			text = ""; // Html shouldn't be generated for the tree's root node because it represents the document being parsed
+		else 
+			indentLevel += 2; // A node's children should be indented 2 spaces more than the parent
+
+		for (let childNode of rootNode.children) {
+			text += `${generateHtmlFromTree(childNode, indentLevel, linkRefs, dangerousHtmlTags)}`;
+		}
+	}else { // rootNode is a leaf block
+		parseContent(rootNode, indentLevel, linkRefs, dangerousHtmlTags)
+		text = generateNodeHtml(rootNode, indentLevel);
+	}
+
+	if (rootNode.textContent === undefined && rootNode.nodeName !== "root") {
+		text += `</${rootNode.nodeName}>\n`; // Generate the closing tag for the node
+	}
+	
+	return text;
+}
+
+
+/** Generates html text from a tree containing markdown blocks as nodes
+ * @param {rootNode} : The root node of the tree 
+ * @param {indentLevel} : The number of spaces to be used for indentation when generating content
+ * @param {linkRefs} : key-value mappings of link label and link label reference definitions 
+ * @param {dangerousHtmlTags} : array of strings containing tag names that would be considered dangerous html */
+export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]):string {
+	let text = "";
+
+	// Generate the opening tag for the node
+	if (rootNode.nodeName === "hr") {
+		return `<${rootNode.nodeName} />\n`
+	}else if (rootNode.nodeName === "ol") {
+		text = `<${rootNode.nodeName} start="${rootNode.startNo}">\n`	
+	}else if (rootNode.textContent === undefined) {
+		text = `<${rootNode.nodeName}>\n`;
+	}
+
+	if (rootNode.textContent === undefined) { // rootNode is a container block
+		if (rootNode.nodeName === "root") // the root node of the tree
+			text = ""; // Html shouldn't be generated for the tree's root node because it represents the document being parsed
+		else 
+			indentLevel += 2; // A node's children should be indented 2 spaces more than the parent
+
+		for (let i=0; i<rootNode.children.length; i++) {
+			const childNode = rootNode.children[i];
+
+			if (childNode.nodeName === "paragraph") {
+				if (childNode.parentNode.nodeName !== "li" || listAncestorIsLoose(childNode)) {
+					childNode.infoString = "loose"
+				}else {
+					text = text.slice(0, text.length-1)
+				}
+			}
+			text += generateHtmlFromTree(childNode, indentLevel, linkRefs, dangerousHtmlTags);
+			if (rootNode.children.length > 1 && childNode.nodeName === "paragraph" && childNode.infoString != "loose") {
+				text += '\n'
+			}
+		}
+
+	}else { // rootNode is a leaf block
+		parseContent(rootNode, indentLevel, linkRefs, dangerousHtmlTags)
+		text = generateNodeHtml(rootNode, indentLevel);
+	}
+
+	if (rootNode.textContent === undefined && rootNode.nodeName !== "root") {
+		text += `</${rootNode.nodeName}>\n`; // Generate the closing tag for the node
 	}
 	
 	return text;

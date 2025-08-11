@@ -140,13 +140,16 @@ export function getDestination(text: string, startIndex: number, partOfInlineLin
 	let charIsEscaped = false;
 	let destHasBoundary = false;
 
-	while(true) {	
+	while(true) {
+
 		if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
 			charIsEscaped = true // next character will be escaped
 		}else if (contentRange) { 
 			destination+=text[i];
 			if (charIsEscaped) {
 				charIsEscaped = false;
+				if ((/\s/).test(text[i+1]))
+					break;
 				i++;
 				continue;
 			}
@@ -304,10 +307,10 @@ function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: a
 	}
 
 	if (linkType === "link") {
-		openingNode.content = `<a href="${attributes.destination}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
+		openingNode.content = `<a href="${encodeURI(attributes.destination)}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
 		closingNode.content = `</a>`
 	}else {
-		openingNode.content = `<img src="${attributes.destination}" alt="${linkText}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
+		openingNode.content = `<img src="${encodeURI(attributes.destination)}" alt="${linkText}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
 		openingNode.next = null;
 	}
 	openingNode.type = "raw html"

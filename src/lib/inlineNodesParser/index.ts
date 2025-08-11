@@ -2,7 +2,7 @@ import generateEmNodes, { setAsLeftOrRightFlanking } from "./emphasisGenerator"
 import type { LinkRefData, LinkRefDataMap } from "./linkGenerator"
 import { generateLinkHtmlNode } from "./linkGenerator"
 
-export const PUNCTUATIONS = "<>;,.()[]{}!`~+-*&^%$#@\\/\"':?~|"; // is this all the possible punctuations?
+export const PUNCTUATIONS = "<>;,.()[]{}!`~+-_!=*&^%$#@\\/\"':?~|"; // is this all the possible punctuations?
 
 export interface Node {
 	content: string;
@@ -197,7 +197,8 @@ function processAngleBracketMarker(text: string, bracketPos: number, forbiddenTa
 	}
 	let url = getAutoLinkStr(bracketPos, text);
 	if (url) {
-		let rawHtml = `<a href="${escapeSpecialCharacters(url)}">${escapeSpecialCharacters(url)}</a>`;
+		console.log("1", url, "==>", text)
+		let rawHtml = `<a href="${encodeURI(url)}">${escapeSpecialCharacters(url)}</a>`;
 		return [rawHtml, bracketPos+url.length+1]; // bracketPos+url.length+1 : zero based addition ( + the 2 angle brackets acting as boundary for the autolink)
 	}
 	let matchedPattern = text.slice(bracketPos).match(/<!--(?!(?:>|->))[^]*-->/)
@@ -213,14 +214,14 @@ export function getEscapedForm(char: string): string {
 			return "&lt;"
 		case '>':
 			return "&gt;"
-		case "'":
-			return "&apos;";
+		// case "'":
+		// 	return "&apos;";
 		case '"':
 			return "&quot;"
-		case '(':
-			return "&lpar;";
-		case ')':
-			return "&rpar;";
+		// case '(':
+		// 	return "&lpar;";
+		// case ')':
+		// 	return "&rpar;";
 		case '&':
 			return "&amp;"
 		default:
@@ -239,7 +240,7 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 	let adjSpaceCharCount = 0; // adjacent space character count
 
 	while (i < text.length){
-		if (text[i] === '\n' && (charIsEscaped || (adjSpaceCharCount >= 2)) && i !== text.length-1) { // we found an hard line break
+		if (text[i] === '\n' && (charIsEscaped || (adjSpaceCharCount >= 2)) && i !== text.length-1) { // a hard line break is found
 			if (adjSpaceCharCount >= 2){
 				// remove the spaces representing the hardline break
 				let contentEnd = currNode.content.length - adjSpaceCharCount;
@@ -247,8 +248,8 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 			}else if (charIsEscaped) {
 				charIsEscaped = false;
 			}
-			currNode = addOrUpdateExistingNode("raw html", "<br/>", currNode);
-		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i]) && text[i] !== '|') {
+			currNode = addOrUpdateExistingNode("raw html", "<br />\n", currNode);
+		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i])) { //  && text[i] !== '|'
 			// all punctuations are escapable here except '|' that may be part of a table's syntax
 			let replacement = getEscapedForm(text[i]);
 			currNode = addOrUpdateExistingNode("text content", replacement, currNode);
@@ -273,6 +274,9 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 		}else if (text[i] === '>') {
 			// escape '>' characters that are not part of any other node
 			currNode = addOrUpdateExistingNode("text content", "&gt;", currNode);
+		}else if (text[i] === '"') {
+			// escape '>' characters that are not part of any other node
+			currNode = addOrUpdateExistingNode("text content", "&quot;", currNode);
 		}else if (text[i] === '!' && ((i+1)<text.length && text[i+1]==='[')){ // img link start marker
 			currNode = addOrUpdateExistingNode("link marker start", "![", currNode);
 			i += 2; continue;
