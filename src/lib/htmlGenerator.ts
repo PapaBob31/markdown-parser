@@ -1,5 +1,5 @@
 import type { HtmlNode } from "../index"
-import parseInlineNodes, { PUNCTUATIONS, escapeSpecialCharacters } from "./inlineNodesParser"
+import parseInlineNodes, { PUNCTUATIONS, escapeSpecialCharacters, getEscapedForm } from "./inlineNodesParser"
 import { getLinkReferenceDefs } from "./inlineNodesParser/linkGenerator"
 import type {LinkRefData, LinkRefDataMap} from "./inlineNodesParser/linkGenerator"
 
@@ -162,7 +162,7 @@ function constructTableFrom(text: string, indentLevel: number, linkRefs: LinkRef
 	return generateTableHtml(tableData, indentLevel, linkRefs, dangerousHtmlTags);
 }
 
-export function formsValidCharRef(text: string, index: number) { // Still need to do decimal and hexadecimal references
+function formsValidCharRef(text: string, index: number) { // Still need to do decimal and hexadecimal references
 	let ref = ""
 
 	for (let i=index+1; i<text.length; i++) {
@@ -182,17 +182,64 @@ export function formsValidCharRef(text: string, index: number) { // Still need t
 	return false
 }
 
-/** Returns a new string that's the same with the textStream parameter
- *  except ampersand character starting invalid HTML character references have been escaped */
-function removeInvalidCharRef(textStream: string) {
-	let output = ""
-	for (let i=0; i<textStream.length; i++){
-		if (textStream[i] === '&' && !formsValidCharRef(textStream, i)) {
-			output += "&amp;" // possibly warn that such cahracter doesn't exist incase they were trying to use that
-			continue;
+function getCharRefIfValid(text: string, index: number) { // Still need to do decimal and hexadecimal references
+	let ref = ""
+
+	for (let i=index+1; i<text.length; i++) {
+		if ((/\s|&/).test(text[i])){ // html entities don't contain ampersands or whitespace
+			return '';
+		}else if (text[i] === ';') {
+			break;
+		}else if (i === text.length-1) {
+			ref = "";
+			break;
+		}
+		ref += text[i];
+	}
+	return ref;
+	// if ((/^#\d{1,7}$/).test(ref) || (/^(?:x|X)[a-fA-F0-9]{1,6}$/).test(ref) || validEntityRefs['&'+ref.toLowerCase()+';']) {
+	// 	return ref;
+	// }
+	// return null
+}
+
+
+export function parseCharRef(textStream: string) {
+	let output = "", i=0;
+	while (i < textStream.length) {
+		if (textStream[i] === '&') {
+			const charRef = getCharRefIfValid(textStream, i)
+			if (charRef) {
+				try {
+					// todo: Add proper library for parsing character references
+					if ((/^#\d{1,7}$/).test(charRef)){
+						const codePoint = charRef.slice(1)
+						output += getEscapedForm(String.fromCodePoint(parseInt(codePoint))) // unicode character
+					}else if ((/^#(?:x|X)[a-fA-F0-9]{1,6}$/).test(charRef)) {
+						const codePoint = charRef.slice(1)
+						output += getEscapedForm(String.fromCodePoint(parseInt('0' + codePoint))) // unicode character
+					}else if (validEntityRefs['&'+charRef+';']) { //
+						output += getEscapedForm(String.fromCodePoint(validEntityRefs['&'+charRef+';']["codepoints"][0])) // unicode character
+					}else {
+						output += "&amp;"
+						i++;
+						continue;
+					}
+					i += charRef.length + 2; // We want parsing to continue after the semi colon that ends the refernce
+					continue;
+				}catch(err) { // Range Error
+					textStream += "&amp;"
+				}
+			}else {
+				output += "&amp;"
+				i++;
+				continue;
+			}
 		}
 		output += textStream[i];
+		i++;
 	}
+
 	return output
 }
 
@@ -207,8 +254,8 @@ function parseContent(node: HtmlNode, indentLevel:number, linkRefs: LinkRefDataM
 		node.textContent = escapeSpecialCharacters(node.textContent)
 	}
 
-	if (!["indented code block", "fenced code backtick", "fenced code tilde"].includes(node.nodeName) && node.textContent) {
-		node.textContent = removeInvalidCharRef(node.textContent);
+	if (!["indented code block", "fenced code backtick", "fenced code tilde", "html block"].includes(node.nodeName) && node.textContent) {
+		node.textContent = parseCharRef(node.textContent);
 	}
 }
 
@@ -220,6 +267,30 @@ function listAncestorIsLoose(node: HtmlNode){
 		return true;
 	}
 	return false;
+}
+
+function getFirstWord(str: string) {
+	let wordStart = false
+	let word = ""
+	let charIsEscaped = false
+	for (let char of str) {
+		if (!charIsEscaped && char === "\\"){
+			charIsEscaped = true
+			continue;
+		}
+
+		if (!wordStart && (/[^\\<>;,.()[\]{}!`~+\-_!=*&^%$#@"':?~|\s]/).test(char)) {
+			wordStart = true
+		}else if (wordStart && (/[\\<>;,.()[\]{}!`~+\-_!=*&^%$#@"':?~|\s]/).test(char) && !charIsEscaped) {
+			break;
+		}
+		if (wordStart)
+			word += char;
+
+		if (charIsEscaped)
+			charIsEscaped = false
+	}
+	return word;
 }
 
 // Generates the html representation of a node
@@ -238,7 +309,7 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 		const tag = node.nodeName;
 		return `<${tag}>${node.textContent}</${tag}>\n` // html header
 	}else if (node.nodeName.startsWith("fenced code") || node.nodeName === "indented code block") {
-		return `<pre><code${node.infoString ? (" class=\"language-"+node.infoString+'"') : ''}>${node.textContent + '\n'}</code></pre>\n`
+		return `<pre><code${node.infoString ? (" class=\"language-"+getFirstWord(parseCharRef(node.infoString))+'"') : ''}>${node.textContent + '\n'}</code></pre>\n`
 	}
 }
 
@@ -360,7 +431,7 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 	if (rootNode.nodeName === "hr") {
 		return `<${rootNode.nodeName} />\n`
 	}else if (rootNode.nodeName === "ol") {
-		text = `<${rootNode.nodeName} start="${rootNode.startNo}">\n`	
+		text = `<${rootNode.nodeName}${rootNode.startNo != '1' ? ' start="'+rootNode.startNo+'"' : ""}>\n`	
 	}else if (rootNode.textContent === undefined) {
 		text = `<${rootNode.nodeName}>\n`;
 	}
@@ -377,12 +448,14 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 			if (childNode.nodeName === "paragraph") {
 				if (childNode.parentNode.nodeName !== "li" || listAncestorIsLoose(childNode)) {
 					childNode.infoString = "loose"
-				}else {
+				}else if (i === 0) {
 					text = text.slice(0, text.length-1)
 				}
+			}else if (childNode.nodeName === "blank") {
+				continue;
 			}
 			text += generateHtmlFromTree(childNode, indentLevel, linkRefs, dangerousHtmlTags);
-			if (rootNode.children.length > 1 && childNode.nodeName === "paragraph" && childNode.infoString != "loose") {
+			if (rootNode.children.length > 1 && (childNode.nodeName === "paragraph") && childNode.infoString != "loose") {
 				text += '\n'
 			}
 		}
