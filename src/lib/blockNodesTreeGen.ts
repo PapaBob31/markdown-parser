@@ -1,10 +1,11 @@
 import type {HtmlNode} from "../index"
 
-function lineRepsThematicBreak(textTokens: string[]) {
+function lineRepsThematicBreak(textTokens: string[], startIndex: number) {
 	let firstNWChar = ""
 	let markerCount = 0;
 
-	for (let text of textTokens) {
+	for (let j=startIndex; j < textTokens.length; j++) {
+		let text = textTokens[j]
 		for (let i=0; i< text.length; i++) {
 			if ((/\s/).test(text[i])) {
 				continue
@@ -142,9 +143,9 @@ function getSetextHeaderType(textTokens: string[], startIndex: number) {
 	let potentialType = ""
 	for (let i=startIndex; i<textTokens.length; i++) {
 		if (i === startIndex && (/^=+$/).test(textTokens[i])) {
-			potentialType = "h1"
+			potentialType = "setext header h1"
 		}else if (i === startIndex && (/^-+$/).test(textTokens[i])){
-			potentialType = "h2"
+			potentialType = "setext header h2"
 		}else if (!(/\s/).test(textTokens[i][0]) || i != textTokens.length-1) {
 			return null
 		}
@@ -156,7 +157,7 @@ function getSetextHeaderType(textTokens: string[], startIndex: number) {
 
 
 function getInnerMostOpenParagraphNode(rootNode: HtmlNode): null|HtmlNode {
-	if (rootNode.nodeName === "paragraph") {
+	if (rootNode.nodeName === "paragraph" && !rootNode.closed) {
 		return rootNode
 	}
 
@@ -275,7 +276,8 @@ function htmlBlockEnded(blockType: string, line: string) {
 	return false;
 }
 
-function getLeafBlockType(marker: string) {
+function getLeafBlockType(textTokens: string[], markerIndex: number) {
+	const marker = textTokens[markerIndex]
 	if ((/^#+$/).test(marker)) {
 		if (marker.length <= 6)
 			return "header"
@@ -285,7 +287,9 @@ function getLeafBlockType(marker: string) {
 	}else if (marker[0] === '~') {
 		return "fenced code tilde"
 	}else if (marker[0] === "=" || marker[0] === "-") {
-		return "setext header"
+		const headerType = getSetextHeaderType(textTokens, markerIndex)
+		if (headerType)
+			return headerType
 	}
 	const htmlBlockType = getHtmlBlockType(marker)
 	if (htmlBlockType)
@@ -294,15 +298,20 @@ function getLeafBlockType(marker: string) {
 }
 
 
-function getFirstWord(text: string) {
+function getFirstWord(textTokens: string[], startIndex: number) {
 	const punctuations = "!#$%&'()*+,-./:;<=>?@,[\\]^_`,{|}~"	
 	let firstWord = ""
 	
-	for (let char of text) {
-		if (punctuations.includes(char) || (/\s/).test(char)) {
-			return firstWord
+	for (let i=startIndex; i<textTokens.length; i++) {
+		const text = textTokens[i]
+
+		if (punctuations.includes(text[0]) || (/\s/).test(text)) {
+			if (text === '\\' )
+				continue;
+			else
+				return firstWord
 		}
-		firstWord += char
+		firstWord += text
 	}
 	return firstWord;
 }
@@ -324,7 +333,7 @@ function getFencedCodeBlockNode(textTokens: string[], tokenStartIndex: number) {
 			else return null
 			continue;
 		}else if (newNode.nodeName && !newNode.infoString && (/\S/).test(textTokens[i])) {
-			newNode.infoString = getFirstWord(textTokens[i])
+			newNode.infoString = getFirstWord(textTokens, i)
 		}
 
 		const nodeIsFencedWithBacktick = (newNode.nodeName === "fenced code backtick")
@@ -377,14 +386,6 @@ function textStartsWithClosingTag(text: string) {
 	}
 
 }
-
-
-/*
-links
-code spans
-raw html
-autolinks
-*/
 
 function textStartsWithOpeningTag(text: string) {
 	let partBeingProcessed = ""
@@ -545,8 +546,9 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 				break;
 			}
 
-			if (lineRepsThematicBreak(textTokens)){
+			if (lineRepsThematicBreak(textTokens, i)){
 				lineIsAThematicBreak = true;
+				leafBlockStartIndex = i;
 				break;
 			}
 
@@ -643,15 +645,14 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 
 	}
 
-	let textToken = null
 	let potentialBlockType = null
 
 	if (!lineIsBlank && leafBlockStartIndex > -1) {
-		textToken = textTokens[leafBlockStartIndex];
+		// textToken = textTokens[leafBlockStartIndex];
 		if (nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4)
 			potentialBlockType = "indented code block"
 		else
-			potentialBlockType = getLeafBlockType(textToken);
+			potentialBlockType = getLeafBlockType(textTokens, leafBlockStartIndex);
 	}
 
 
@@ -678,11 +679,6 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 				{parentNode: containerParentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel+4), children: []}
 			)
 		}
-	}
-
-	if (lineIsAThematicBreak) {
-		containerParentNode.children.push({parentNode: containerParentNode, nodeName: "hr", closed: true, children: []});
-		return containerParentNode;
 	}
 
 
@@ -717,7 +713,7 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 
 	}
 
-	if (potentialBlockType.startsWith("fenced code")) {
+	if (potentialBlockType && potentialBlockType.startsWith("fenced code")) {
 		const codeBlockNode = getFencedCodeBlockNode(textTokens, leafBlockStartIndex)
 		if (codeBlockNode) {
 			codeBlockNode.parentNode = containerParentNode;
@@ -726,21 +722,22 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 		}else {
 			potentialBlockType = "plain text"
 		}
-	}else if (potentialBlockType === "setext header") {
+	}else if (potentialBlockType && potentialBlockType.startsWith("setext header")) {
 		let paragraphBeforeLine = getInnerMostOpenParagraphNode(containerParentNode)
 		if (paragraphBeforeLine) {
-			const headerType = getSetextHeaderType(textTokens, leafBlockStartIndex);
-			if (headerType) {
-				paragraphBeforeLine.nodeName = headerType
-				paragraphBeforeLine.closed = true
-			}else {
-				potentialBlockType = "plain text"
-			}	
+			paragraphBeforeLine.nodeName = potentialBlockType === "setext header h1" ? "h1" : "h2"
+			paragraphBeforeLine.textContent = paragraphBeforeLine.textContent.trim()
+			paragraphBeforeLine.closed = true
+			return containerParentNode;
 		}else {
 			potentialBlockType = "plain text"
 		}
-	}  
-			
+	}
+
+	if (lineIsAThematicBreak) {
+		containerParentNode.children.push({parentNode: containerParentNode, nodeName: "hr", closed: true, children: []});
+		return containerParentNode;
+	}	
 
 	if (potentialBlockType == "plain text") {
 		let continuedParagraph = getInnerMostOpenParagraphNode(containerParentNode)
@@ -758,10 +755,11 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 			)
 		}
 	}else if (potentialBlockType === "header") {
+		let marker = textTokens[leafBlockStartIndex];
 		containerParentNode.children.push(
-			{parentNode: containerParentNode, nodeName: `h${textToken.length}`, closed: true, children: [], textContent: getATXHeaderContent(textTokens)}
+			{parentNode: containerParentNode, nodeName: `h${marker.length}`, closed: true, children: [], textContent: getATXHeaderContent(textTokens)}
 		)
-	}else if (potentialBlockType.startsWith("html block")) {
+	}else if (potentialBlockType && potentialBlockType.startsWith("html block")) {
 		containerParentNode.children.push(
 			{parentNode: containerParentNode, nodeName: "html block", closed: false, textContent: joinText(textTokens, leafBlockStartIndex), infoString: potentialBlockType, children: []}
 		)
