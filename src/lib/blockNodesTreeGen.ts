@@ -51,10 +51,13 @@ function tokenizeLine(text: string, startIndex: number): [string[], number] {
 			if (curr_token && curr_token[0] != text[i]){
 				tokens.push(curr_token)
 				curr_token = ""
-			}curr_token += text[i]
+			}
+			curr_token += text[i]
 		}else if (text[i] === '>'){
-			if (curr_token)
+			if (curr_token){
 				tokens.push(curr_token, text[i])
+				curr_token = ""
+			}
 			else tokens.push(text[i])
 		}else {
 			if (curr_token && !(/\S/).test(curr_token[0])) {
@@ -121,10 +124,10 @@ function replaceTabsWithSpaces(text: string, charCountBeforeText: number) {
 	let newText = ""
 	for (let i=0; i<text.length; i++) {
 		if (text[i] === '\t') {
-			if ((charCountBeforeText + i) === 4)  {
+			if ((charCountBeforeText + newText.length) === 4)  {
 				newText += (' ').repeat(4)
 			}else {
-				newText += (' ').repeat(4 - ((charCountBeforeText + i) % 4))
+				newText += (' ').repeat(4 - ((charCountBeforeText + newText.length) % 4))
 			}
 		}else {
 			newText += text[i]
@@ -252,9 +255,7 @@ function getHtmlBlockType(text: string) {
 			return "html block type 5"
 		}else if (type6Tags.includes(htmlPatterns[1].toLowerCase())) {
 			return "html block type 6"
-		}/*else if (getHtmlTagEndPos(line.indexOf('<'), line, dangerousHtmlTags) !== -1) {
-			return "7"
-		}*/else return null
+		}else return null
 	}
 }
 
@@ -298,7 +299,7 @@ function getFirstWord(text: string) {
 	let firstWord = ""
 	
 	for (let char of text) {
-		if (punctuations.includes(char)) {
+		if (punctuations.includes(char) || (/\s/).test(char)) {
 			return firstWord
 		}
 		firstWord += char
@@ -313,14 +314,15 @@ function getFencedCodeBlockNode(textTokens: string[], tokenStartIndex: number) {
 		// I'm always doing a regex test for whitespace
 		// what if I compared the char with the escaped unicode reps for all whitespace characters, will that be faster
 		if (!newNode.nodeName && (/\S/).test(textTokens[i])) {
-			if (textTokens[i] === '`') {
+			if (textTokens[i][0] === '`') {
 				newNode.nodeName = "fenced code backtick"
 				newNode.fenceLength = textTokens[i].length
-			}else if (textTokens[i] === '~'){
+			}else if (textTokens[i][0] === '~'){
 				newNode.nodeName = "fenced code tilde" 
 				newNode.fenceLength = textTokens[i].length
 			}
 			else return null
+			continue;
 		}else if (newNode.nodeName && !newNode.infoString && (/\S/).test(textTokens[i])) {
 			newNode.infoString = getFirstWord(textTokens[i])
 		}
@@ -337,7 +339,7 @@ function getFencedCodeBlockNode(textTokens: string[], tokenStartIndex: number) {
 }
 
 function lineEndsFencedCodeBlock(nodeToClose: HtmlNode, textTokens: string[], markerIndex: number){
-	if (nodeToClose.nodeName === "fenced code backtick" && !(/^`+$/).test(textTokens[markerIndex])) {
+	if (nodeToClose.nodeName === "fenced code tilde" && !(/^~+$/).test(textTokens[markerIndex])) {
 		return false
 	}else if (nodeToClose.nodeName === "fenced code backtick" && !(/^`+$/).test(textTokens[markerIndex])) {
 		return false
@@ -351,36 +353,138 @@ function lineEndsFencedCodeBlock(nodeToClose: HtmlNode, textTokens: string[], ma
 		}
 	}
 
-	return false
+	return true
 
 }
 
-function contentCanMakeListLoose(listItemNode: HtmlNode) {
-	for (let i=0; i<listItemNode.children.length; i++) {
-		if (i !== 0 && i !== listItemNode.children.length-1) {
-			if (listItemNode.children[i].nodeName === "blank") {
-				return true
+function textStartsWithClosingTag(text: string) {
+	let possibleClosingTagPatterns = text.match(/^\s*<\/[a-zA-z-][a-zA-Z0-9-]+(\s*)>\n/);
+	let newLineCharFoundPrev = false
+
+	if (!possibleClosingTagPatterns)
+		return false
+
+	let whiteSpace = possibleClosingTagPatterns[1]
+
+	for (let i=0; i<whiteSpace.length; i++){
+		let char = whiteSpace[i]
+
+		if (char === '\n' && newLineCharFoundPrev){
+			return false
+		}else if (char === '\n' && !newLineCharFoundPrev) {
+			newLineCharFoundPrev = true
+		}
+	}
+
+}
+
+
+/*
+links
+code spans
+raw html
+autolinks
+*/
+
+function textStartsWithOpeningTag(text: string) {
+	let partBeingProcessed = ""
+	let finishedProcessing =  false
+	let newLineCharFoundPrev = false
+	let completeTag = false
+
+	const possComponentsBeforeAttribute = ["tag name", "single quoted val", "double quoted val", "unquoted val", "attribute name"]
+
+	for (let i=0; i<text.length; i++) {
+		let char = text[i]
+		if (completeTag && !(/\s/).test(char))
+			return false
+		else if (completeTag && char === '\n')
+			break;
+
+		if (!["single quoted val", "double quoted val"].includes(partBeingProcessed) && (/\s/).test(char)) {
+			if (char === '\n' && newLineCharFoundPrev){
+				return false
+			}else if (char === '\n' && !newLineCharFoundPrev) {
+				newLineCharFoundPrev = true
+			}
+			if (!finishedProcessing) {
+				finishedProcessing = true
+			}
+			continue
+		}
+
+		if (!partBeingProcessed) {
+			if (char === '<')
+				partBeingProcessed = "start delimiter"
+			else
+				return false;
+		}else if (partBeingProcessed === "start delimiter" && (/[a-zA-z-]/).test(char)) {
+			if (finishedProcessing) // white space after '<'? 
+				return false // NO!!
+			partBeingProcessed = "tag name"
+		}else if (partBeingProcessed === "tag name" && !(/[a-zA-Z0-9-]/).test(char)) {
+			return false
+		}else if (possComponentsBeforeAttribute.includes(partBeingProcessed) && finishedProcessing && (/[a-zA-Z_:]/).test(char)) {
+			partBeingProcessed = "attribute name"
+		}else if (partBeingProcessed === "attribute name" && char === "=") {
+			partBeingProcessed = "assignment operator"
+		}else if (partBeingProcessed === "attribute name" && !(/[a-zA-Z0-9_:.]/).test(char)) {
+			return false
+		}else if (partBeingProcessed === "assignment operator" && !(/[=<>`]/).test(char)) {
+			if (char === "'")
+				partBeingProcessed = "single quoted val"
+			else if (char === '"')
+				partBeingProcessed = "double quoted val"
+			else
+				partBeingProcessed = "unquoted val"
+		}else if (partBeingProcessed === "single quoted val" && char === "'" && !finishedProcessing) {
+			finishedProcessing = true
+			continue;
+		}else if (partBeingProcessed === "double quoted val" && char === '"' && !finishedProcessing) {
+			finishedProcessing = true
+			continue;
+		}else if (partBeingProcessed === "unquoted val" && (/"|'|=|<|>|`|/).test(char)) {
+			return false
+		}else if (partBeingProcessed !== "assignment operator" && finishedProcessing) {
+			if (i <= text.length-2 && char === '/' && text[i+1] === '>'){
+				completeTag = true
+			}else if (char === '>') {
+				completeTag = true
 			}
 		}
+
+		if (finishedProcessing) {
+			newLineCharFoundPrev = false
+			finishedProcessing = false
+		}
+	}
+
+	if (completeTag)
+		return true
+	return false
+}
+
+
+function checkIfTextIsHTMLBlock7(text: string) {
+	if (textStartsWithClosingTag(text) || textStartsWithOpeningTag(text)) {
+		return true
 	}
 	return false
 }
 
-
-
-// should be called when appending a new list item to a list or a new block element to a list item
 function listIsLoose(listNode: HtmlNode): boolean {
 
 	for (let i=0; i<listNode.children.length; i++) {
 		let listItemNode = listNode.children[i]
-		if (listItemNode.children[i].nodeName === "blank" && i !== listNode.children.length-1){
-			return true
-		}else {
-			// console.log("OOO", listItemNode.children)
-			for (let j=1; j<listItemNode.children.length-1; j++) {
-				if (listItemNode.children[j].nodeName === "blank")
-					return true				
+		if (i !== listNode.children.length-1) {
+			if (listItemNode.children[listItemNode.children.length-1] && listItemNode.children[listItemNode.children.length-1].nodeName === "blank"){
+				return true
 			}
+		}
+
+		for (let j=1; j<listItemNode.children.length-1; j++) {
+			if (listItemNode.children[j].nodeName === "blank")
+				return true				
 		}
 
 	}
@@ -394,7 +498,6 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 	let indentLevel = -1
 	let nearestOpenedAncestor = null
 	let leafBlockStartIndex = -1
-	const blockNodes:HtmlNode[] = []
 	let lastWhiteSpaceChunk = ""
 	let lineIsAThematicBreak = false
 	let lineIsBlank = false
@@ -410,9 +513,11 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 				break;
 			}
 
-			lastWhiteSpaceChunk = replaceTabsWithSpaces(text, indentLevel)
+			lastWhiteSpaceChunk = replaceTabsWithSpaces(text, indentLevel+1)
 			textTokens[i] = lastWhiteSpaceChunk // prevents  bugs when slicing content
 			indentLevel += lastWhiteSpaceChunk.length // We want indent level to be the last space character index by design
+			if (nearestOpenedAncestor && nearestOpenedAncestor.nodeName === "blockquote")
+				nearestOpenedAncestor.indentLevel += 1;
 		}else {
 			if (!nearestOpenedAncestor){
 				indentLevel++;
@@ -429,6 +534,12 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 
 			}
 
+			if (nearestOpenedAncestor && nearestOpenedAncestor.nodeName === "li") {
+				if (nearestOpenedAncestor.children.length == 0 && lastWhiteSpaceChunk.length < 4){
+					nearestOpenedAncestor.indentLevel += (-1 + lastWhiteSpaceChunk.length)
+				}
+			}
+
 			if (nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4) {
 				leafBlockStartIndex = i;
 				break;
@@ -437,14 +548,6 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 			if (lineRepsThematicBreak(textTokens)){
 				lineIsAThematicBreak = true;
 				break;
-			}
-
-
-			if (blockNodes.length > 0 && ["ol", "ul"].includes(blockNodes[blockNodes.length-1].nodeName)){
-				const firstListItem = blockNodes[blockNodes.length-1].children[0]
-				if (lastWhiteSpaceChunk.length < 4){
-					firstListItem.indentLevel += (-1 + lastWhiteSpaceChunk.length)
-				}
 			}
 
 			const containerType = getContainerBlockType(text)
@@ -459,12 +562,12 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 					leafBlockStartIndex = i;
 					break;
 				}
-				let existingListNode = null
 				let newListItemNode: HtmlNode = {parentNode: null, nodeName: "li", indentLevel: -1, closed: false, children: []}
 				let parentListNode = null
 
 				if (nearestOpenedAncestor.children.length > 0 ) {
 					const potentialParentList = nearestOpenedAncestor.children[nearestOpenedAncestor.children.length-1]
+
 					if (potentialParentList.nodeName === "paragraph") {
 						if (i === textTokens.length-1 || (i === textTokens.length-2 && (/\s/).test(textTokens[i+1][0]))) {
 							leafBlockStartIndex = i;
@@ -474,14 +577,17 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 					if (potentialParentList.infoString === containerType && ["ol", "ul"].includes(potentialParentList.nodeName)) {
 						parentListNode = potentialParentList
 					}
-				}else {
+				}
+				if (!parentListNode) {
+					// console.log('okay')
 					parentListNode = getListNode(nearestOpenedAncestor, containerType)
 					nearestOpenedAncestor.children.push(parentListNode)
 				}
 				newListItemNode.parentNode = parentListNode;
-				newListItemNode.indentLevel = parentListNode.indentLevel + (lastWhiteSpaceChunk.length + text.length) + 1
+				newListItemNode.indentLevel = indentLevel + (text.length-1) + 2
 				parentListNode.children.push(newListItemNode)
 				nearestOpenedAncestor = newListItemNode
+
 
 			}else if (containerType === "blockquote") {
 				const childLen = nearestOpenedAncestor.children.length;
@@ -540,7 +646,7 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 	let textToken = null
 	let potentialBlockType = null
 
-	if (!lineIsBlank) {
+	if (!lineIsBlank && leafBlockStartIndex > -1) {
 		textToken = textTokens[leafBlockStartIndex];
 		if (nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4)
 			potentialBlockType = "indented code block"
@@ -551,25 +657,25 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 
 	if (nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4) {
 
-		let lastOpenedChildNode = null; //        r
+		let lastOpenedChildNode = null;
 
 		if (childrenLen > 0){
 			lastOpenedChildNode = containerParentNode.children[childrenLen-1]
 			if (lastOpenedChildNode.nodeName === "indented code block") {
-				lastOpenedChildNode.textContent += joinText(textTokens, 0).slice(containerParentNode.indentLevel+4+1)
+				lastOpenedChildNode.textContent += joinText(textTokens, 0).slice(containerParentNode.indentLevel+4)
 			}else {
 				let continuedParagraph = getInnerMostOpenParagraphNode(containerParentNode)
 				if (continuedParagraph)
 					potentialBlockType = "plain text"
 				else {
 					containerParentNode.children.push(
-						{parentNode: containerParentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel+4+1), children: []}
+						{parentNode: containerParentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel+4), children: []}
 					)
 				}
 			}
 		}else {
 			containerParentNode.children.push(
-				{parentNode: containerParentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel+4+1), children: []}
+				{parentNode: containerParentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel+4), children: []}
 			)
 		}
 	}
@@ -597,7 +703,7 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 					lastChildNode.parentNode.children.push({parentNode: lastChildNode.parentNode, nodeName: "blank", closed: true, children: []})
 				}
 			}
-			if (["paragraph", "html block type 6", "blockquote"].includes(lastChildNode.nodeName)) {
+			if (["paragraph", "html block type 6", "html block type 7",  "blockquote"].includes(lastChildNode.nodeName)) {
 				lastChildNode.closed = true
 			}
 
@@ -641,8 +747,14 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 		if (continuedParagraph) {
 			continuedParagraph.textContent += joinText(textTokens, leafBlockStartIndex)
 		}else {
+			let blockType = "paragraph"
+			let content = joinText(textTokens, 0).slice(containerParentNode.indentLevel)
+			const textIsHtmlBlock7 = checkIfTextIsHTMLBlock7(content)
+			if (textIsHtmlBlock7){
+				blockType = "html block type 7"
+			}
 			containerParentNode.children.push(
-				{parentNode: containerParentNode, nodeName: "paragraph", closed: false, children: [], textContent: joinText(textTokens, leafBlockStartIndex).trim()}
+				{parentNode: containerParentNode, nodeName: blockType, closed: false, children: [], textContent: joinText(textTokens, leafBlockStartIndex)}
 			)
 		}
 	}else if (potentialBlockType === "header") {

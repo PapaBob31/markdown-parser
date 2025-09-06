@@ -246,6 +246,7 @@ export function parseCharRef(textStream: string) {
 // parse the content of leaf blocks for inline nodes and unescaped html tags
 function parseContent(node: HtmlNode, indentLevel:number, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]) {
 	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName)) {
+		// console.log(1, node.textContent)
 		node.textContent = parseInlineNodes(node.textContent as string, linkRefs, dangerousHtmlTags);
 		node.textContent = node.textContent.trimLeft();
 	}else if (node.nodeName === "table") {
@@ -256,6 +257,7 @@ function parseContent(node: HtmlNode, indentLevel:number, linkRefs: LinkRefDataM
 
 	if (!["indented code block", "fenced code backtick", "fenced code tilde", "html block"].includes(node.nodeName) && node.textContent) {
 		node.textContent = parseCharRef(node.textContent);
+		// console.log(2, node.textContent)
 	}
 }
 
@@ -295,13 +297,13 @@ function getFirstWord(str: string) {
 
 // Generates the html representation of a node
 function generateNodeHtml(node: HtmlNode, indentLevel: number) {
-	if (node.nodeName === "html block") {
-		return `${node.textContent}\n`
+	if (node.nodeName.startsWith("html block")) { // "html block type 7"
+		return `${node.textContent.trim()}\n`
 	}else if (node.nodeName === "paragraph") {
 		if (node.infoString === "loose") {
-			return node.textContent ? `<p>${node.textContent}</p>\n` : "";
+			return node.textContent ? `<p>${node.textContent.trim()}</p>\n` : "";
 		}else {
-			return node.textContent;
+			return node.textContent.trim();
 		}
 	}else if (node.nodeName === "table") {
 		return node.textContent;
@@ -309,7 +311,9 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 		const tag = node.nodeName;
 		return `<${tag}>${node.textContent}</${tag}>\n` // html header
 	}else if (node.nodeName.startsWith("fenced code") || node.nodeName === "indented code block") {
-		return `<pre><code${node.infoString ? (" class=\"language-"+getFirstWord(parseCharRef(node.infoString))+'"') : ''}>${node.textContent + '\n'}</code></pre>\n`
+		if (node.textContent[node.textContent.length-1] === '\n')
+			node.textContent = node.textContent.slice(0, node.textContent.length-1)
+		return `<pre><code${node.infoString ? (" class=\"language-"+getFirstWord(parseCharRef(node.infoString))+'"') : ''}>${node.textContent}\n</code></pre>\n`
 	}
 }
 
@@ -448,8 +452,8 @@ export default function generateHtmlFromTree(rootNode: HtmlNode, indentLevel: nu
 			if (childNode.nodeName === "paragraph") {
 				if (childNode.parentNode.nodeName !== "li" || listAncestorIsLoose(childNode)) {
 					childNode.infoString = "loose"
-				}else if (i === 0) {
-					text = text.slice(0, text.length-1)
+				}else if (i === 0) { // first child node of a tight list
+					text = text.slice(0, text.length-1) // remove new line that must have been appended to the parent list item opening tag
 				}
 			}else if (childNode.nodeName === "blank") {
 				continue;
