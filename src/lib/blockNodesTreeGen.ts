@@ -61,10 +61,14 @@ function tokenizeLine(text: string, startIndex: number): [string[], number] {
 			}
 			else tokens.push(text[i])
 		}else {
-			if (curr_token && !(/\S/).test(curr_token[0])) {
+			if (curr_token && (curr_token[0] === '`' || curr_token[0] === '~' || curr_token[0] === "#")){
+				tokens.push(curr_token)
+				curr_token = ""
+			}else if (curr_token && !(/\S/).test(curr_token[0])) {
 				tokens.push(curr_token)
 				curr_token = ""
 			}
+
 			curr_token += text[i]
 		}
 
@@ -84,26 +88,22 @@ function continueLastOpenedNodeContent(lastOpenedNode: HtmlNode, textTokens: str
 }
 
 
-function getATXHeaderContent(textTokens: string[]) {
+function getATXHeaderContent(textTokens: string[], markerIndex: number) {
 	let content = ""
 	let startTokenIndex = -1;
 
-	for (let i=0; i<textTokens.length; i++) {
-		if (content && textTokens[i][0] === "#") {
-			const lti = textTokens.length-1 // lastTokenIndex
-			if (i === lti && (/\s/).test(textTokens[i-1][0])) {
-				content = content.trim()
-				break;
-			}else if (i === lti-1 && (/\s/).test(textTokens[i-1][0]) && (/\s/).test(textTokens[i+1][0])) {
-				content = content.trim()
-				break;
+	for (let i=markerIndex+1; i<textTokens.length; i++) {
+		if (textTokens[i][0] === "#" && (/\s/).test(textTokens[i-1][0])) {
+			const textLen = textTokens.length
+			if (i === textLen-1 || (i === textLen-2 && (/\s/).test(textTokens[i+1][0]))) {
+				// console.log(textTokens, i, textTokens[i])
+				continue;
 			}
 		}
 
-		if (!content && !(/\s|#/).test(textTokens[i][0])){
-			content += textTokens[i]
-		}
+		content += textTokens[i]
 	}
+	content = content.trim()
 
 	return content 
 
@@ -172,6 +172,7 @@ function joinText(textTokens: string[], startIndex:number=0) {
 	let textOutput = ""
 	for (let i=startIndex; i<textTokens.length; i++)
 		textOutput += textTokens[i]
+
 	return textOutput
 
 }
@@ -203,14 +204,19 @@ function getContainerBlockType(marker: string) {
 
 
 
-function getListNode(listNodeParent: HtmlNode, markerDetails: string) {
+function getListNode(listNodeParent: HtmlNode, markerDetails: string, marker: string) {
+	let startNo = "-1"
+	if (markerDetails === "list item n." || markerDetails === "list item n)") {
+		startNo = marker.match(/^\d+/)[0]
+	}
 	const listNode: HtmlNode = {
 		parentNode: listNodeParent,
 		nodeName: "",
 		closed: false, 
 		children: [],
 		tight: "true",
-		indentLevel: listNodeParent.indentLevel
+		indentLevel: listNodeParent.indentLevel,
+		startNo
 	}
 
 	if (["list item +", "list item -", "list item *"].includes(markerDetails)){
@@ -278,13 +284,14 @@ function htmlBlockEnded(blockType: string, line: string) {
 
 function getLeafBlockType(textTokens: string[], markerIndex: number) {
 	const marker = textTokens[markerIndex]
-	if ((/^#+$/).test(marker)) {
-		if (marker.length <= 6)
-			return "header"
+	if (marker[0] === "#") {
+		if (markerIndex !== textTokens.length-1 && (/\s/).test(textTokens[markerIndex+1][0]))
+			if (marker.length <= 6)
+				return "header"
 		return "plain text"
-	}else if (marker[0] === '`') {
+	}else if (marker[0] === '`' && marker.length >= 3) {
 		return "fenced code backtick"
-	}else if (marker[0] === '~') {
+	}else if (marker[0] === '~' && marker.length >= 3) {
 		return "fenced code tilde"
 	}else if (marker[0] === "=" || marker[0] === "-") {
 		const headerType = getSetextHeaderType(textTokens, markerIndex)
@@ -299,21 +306,28 @@ function getLeafBlockType(textTokens: string[], markerIndex: number) {
 
 
 function getFirstWord(textTokens: string[], startIndex: number) {
-	const punctuations = "!#$%&'()*+,-./:;<=>?@,[\\]^_`,{|}~"	
+	const punctuations = "!#$%&'()*+,-./:;<=>?@,[\\]^_`,{|}~"
+	const textAFterMarker = joinText(textTokens, startIndex)
 	let firstWord = ""
-	
-	for (let i=startIndex; i<textTokens.length; i++) {
-		const text = textTokens[i]
 
-		if (punctuations.includes(text[0]) || (/\s/).test(text)) {
-			if (text === '\\' )
-				continue;
-			else
-				return firstWord
+	for (let i=0; i<textAFterMarker.length; i++) {
+		const char = textAFterMarker[i]
+		if ((/\s/).test(char)){
+			return firstWord
 		}
-		firstWord += text
+		if (punctuations.includes(char))  {
+			if (char === "\\")
+				continue
+			if (i===0 || textAFterMarker[i-1] !== '\\') {
+				if (!firstWord)
+					return char
+				return firstWord
+			}
+		}
+		firstWord += char
 	}
-	return firstWord;
+
+	return firstWord
 }
 
 function getFencedCodeBlockNode(textTokens: string[], tokenStartIndex: number) {
@@ -336,9 +350,7 @@ function getFencedCodeBlockNode(textTokens: string[], tokenStartIndex: number) {
 			newNode.infoString = getFirstWord(textTokens, i)
 		}
 
-		const nodeIsFencedWithBacktick = (newNode.nodeName === "fenced code backtick")
-		const nodeIsFencedWithTilde = (newNode.nodeName === "fenced code tilde")
-		if (nodeIsFencedWithBacktick && textTokens[i][0] === "`" || nodeIsFencedWithTilde && textTokens[i][0] === '~') {
+		if (newNode.nodeName === "fenced code backtick" && textTokens[i][0] === "`") {
 			return null
 		}
 	}
@@ -517,8 +529,6 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 			lastWhiteSpaceChunk = replaceTabsWithSpaces(text, indentLevel+1)
 			textTokens[i] = lastWhiteSpaceChunk // prevents  bugs when slicing content
 			indentLevel += lastWhiteSpaceChunk.length // We want indent level to be the last space character index by design
-			if (nearestOpenedAncestor && nearestOpenedAncestor.nodeName === "blockquote")
-				nearestOpenedAncestor.indentLevel += 1;
 		}else {
 			if (!nearestOpenedAncestor){
 				indentLevel++;
@@ -559,6 +569,7 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 				break;
 			}
 
+			lastWhiteSpaceChunk = ""
 			if (containerType.startsWith("list item")) {
 				if (i !== textTokens.length-1 && !(/\s/).test(textTokens[i+1][0])) {
 					leafBlockStartIndex = i;
@@ -581,8 +592,7 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 					}
 				}
 				if (!parentListNode) {
-					// console.log('okay')
-					parentListNode = getListNode(nearestOpenedAncestor, containerType)
+					parentListNode = getListNode(nearestOpenedAncestor, containerType, textTokens[i])
 					nearestOpenedAncestor.children.push(parentListNode)
 				}
 				newListItemNode.parentNode = parentListNode;
@@ -592,15 +602,20 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 
 
 			}else if (containerType === "blockquote") {
+				nearestOpenedAncestor.nodeName === "blockquote" && console.log(nearestOpenedAncestor, "\n....")
 				const childLen = nearestOpenedAncestor.children.length;
 				if (nearestOpenedAncestor.children.length > 0){
+
 					const lastChildNode = nearestOpenedAncestor.children[childLen-1]
-					if (lastChildNode.nodeName === "blockqote" && !lastChildNode.closed){
+					if (lastChildNode.nodeName === "blockquote" && !lastChildNode.closed){
 						nearestOpenedAncestor = nearestOpenedAncestor.children[0]
 						continue;
 					}
 				}
-				const newNode: HtmlNode = {parentNode: nearestOpenedAncestor, nodeName: "blockquote",indentLevel: nearestOpenedAncestor.indentLevel+1,closed: false, children: []};
+				const newNode: HtmlNode = {parentNode: nearestOpenedAncestor, nodeName: "blockquote",indentLevel: nearestOpenedAncestor.indentLevel+1, closed: false, children: []};
+				if ((/\s/).test(textTokens[i+1][0])) {
+					newNode.indentLevel += 1;
+				}
 				nearestOpenedAncestor.children.push(newNode)
 				nearestOpenedAncestor = newNode
 
@@ -610,7 +625,6 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 		}
 	}
 	
-
 	let containerParentNode = null
 	if (!nearestOpenedAncestor) {
 		containerParentNode = lastOpenedContainerNode
@@ -627,11 +641,27 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 
 	if (childrenLen > 0){
 		let lastOpenedChildNode = containerParentNode.children[childrenLen-1]
-		if (lastOpenedChildNode.nodeName.startsWith("fenced code")){
-			if (lineEndsFencedCodeBlock(lastOpenedChildNode, textTokens, leafBlockStartIndex)) {
+		if (lastOpenedChildNode.nodeName.startsWith("fenced code") && !lastOpenedChildNode.closed){
+			if (lastWhiteSpaceChunk.length < 4 && lineEndsFencedCodeBlock(lastOpenedChildNode, textTokens, leafBlockStartIndex)) {
 				lastOpenedChildNode.closed = true
-			}else
-				lastOpenedChildNode.textContent += joinText(textTokens, leafBlockStartIndex)
+			}else{
+				let lineContent =  joinText(textTokens, 0)
+				if (containerParentNode.indentLevel === lastOpenedChildNode.indentLevel){
+					lastOpenedChildNode.textContent += lineContent.slice(containerParentNode.indentLevel)
+				}
+				else {
+					const potIndentBeforeMarker = lineContent.slice(containerParentNode.indentLevel, lastOpenedChildNode.indentLevel)
+					if ((/^\s+$/).test(potIndentBeforeMarker)) {
+						// indent is greater than or equal to code block's start delimiter indent
+						lastOpenedChildNode.textContent += lineContent.slice(lastOpenedChildNode.indentLevel)
+					}else {
+						// indent is less than code block's start delimiter indent 
+						// so the whitespace beefore the catual content needs to be removed
+						lastOpenedChildNode.textContent += lineContent.slice(containerParentNode.indentLevel).trimStart()
+					}
+				}
+				// console.log(lastOpenedChildNode.textContent.replaceAll(" ", "."))
+			}
 			return containerParentNode
 		}else if (lastOpenedChildNode.nodeName.startsWith("html block")){
 			const content = joinText(textTokens, leafBlockStartIndex)
@@ -656,15 +686,22 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 	}
 
 
-	if (nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4) {
+	if ((nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4) || lineIsBlank) {
 
 		let lastOpenedChildNode = null;
 
 		if (childrenLen > 0){
 			lastOpenedChildNode = containerParentNode.children[childrenLen-1]
 			if (lastOpenedChildNode.nodeName === "indented code block") {
-				lastOpenedChildNode.textContent += joinText(textTokens, 0).slice(containerParentNode.indentLevel+4)
-			}else {
+				if (lineIsBlank){
+					let content = joinText(textTokens, 0).slice(containerParentNode.indentLevel+4)
+					if (content)
+						lastOpenedChildNode.textContent += content
+					else
+						lastOpenedChildNode.textContent += '\n'
+				}else
+					lastOpenedChildNode.textContent += joinText(textTokens, 0).slice(containerParentNode.indentLevel+4)
+			}else if (!lineIsBlank) {
 				let continuedParagraph = getInnerMostOpenParagraphNode(containerParentNode)
 				if (continuedParagraph)
 					potentialBlockType = "plain text"
@@ -674,7 +711,7 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 					)
 				}
 			}
-		}else {
+		}else if (!lineIsBlank) {
 			containerParentNode.children.push(
 				{parentNode: containerParentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel+4), children: []}
 			)
@@ -717,14 +754,18 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 		const codeBlockNode = getFencedCodeBlockNode(textTokens, leafBlockStartIndex)
 		if (codeBlockNode) {
 			codeBlockNode.parentNode = containerParentNode;
+			codeBlockNode.indentLevel = containerParentNode.indentLevel + lastWhiteSpaceChunk.length
 			containerParentNode.children.push(codeBlockNode)
 			return containerParentNode;
 		}else {
 			potentialBlockType = "plain text"
 		}
 	}else if (potentialBlockType && potentialBlockType.startsWith("setext header")) {
-		let paragraphBeforeLine = getInnerMostOpenParagraphNode(containerParentNode)
-		if (paragraphBeforeLine) {
+		let paragraphBeforeLine = null
+		if (containerParentNode.children.length > 0 && containerParentNode.children[containerParentNode.children.length-1].nodeName === "paragraph") {
+			paragraphBeforeLine = containerParentNode.children[containerParentNode.children.length-1]
+		}
+		if (paragraphBeforeLine && !paragraphBeforeLine.closed) {
 			paragraphBeforeLine.nodeName = potentialBlockType === "setext header h1" ? "h1" : "h2"
 			paragraphBeforeLine.textContent = paragraphBeforeLine.textContent.trim()
 			paragraphBeforeLine.closed = true
@@ -757,7 +798,7 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 	}else if (potentialBlockType === "header") {
 		let marker = textTokens[leafBlockStartIndex];
 		containerParentNode.children.push(
-			{parentNode: containerParentNode, nodeName: `h${marker.length}`, closed: true, children: [], textContent: getATXHeaderContent(textTokens)}
+			{parentNode: containerParentNode, nodeName: `h${marker.length}`, closed: true, children: [], textContent: getATXHeaderContent(textTokens, leafBlockStartIndex)}
 		)
 	}else if (potentialBlockType && potentialBlockType.startsWith("html block")) {
 		containerParentNode.children.push(

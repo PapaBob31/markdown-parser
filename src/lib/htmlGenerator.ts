@@ -311,9 +311,20 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 		const tag = node.nodeName;
 		return `<${tag}>${node.textContent}</${tag}>\n` // html header
 	}else if (node.nodeName.startsWith("fenced code") || node.nodeName === "indented code block") {
-		if (node.textContent[node.textContent.length-1] === '\n')
-			node.textContent = node.textContent.slice(0, node.textContent.length-1)
-		return `<pre><code${node.infoString ? (" class=\"language-"+getFirstWord(parseCharRef(node.infoString))+'"') : ''}>${node.textContent}\n</code></pre>\n`
+		let contentEndIndex = -1
+		for (let i=node.textContent.length-1; i>=0; i--) {
+			if (node.textContent[i] === '\n')
+				contentEndIndex = i
+			else if (node.textContent[i] !== '\n') {
+				break;
+			}
+		}
+		if (contentEndIndex > -1)
+			node.textContent = node.textContent.slice(0, contentEndIndex)
+
+		if (node.textContent)
+			node.textContent+='\n'
+		return `<pre><code${node.infoString ? (" class=\"language-"+parseCharRef(node.infoString)+'"') : ''}>${node.textContent}</code></pre>\n`
 	}
 }
 
