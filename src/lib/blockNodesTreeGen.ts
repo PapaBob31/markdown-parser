@@ -231,55 +231,56 @@ function getListNode(listNodeParent: HtmlNode, markerDetails: string, marker: st
 }
 
 
+function htmlBlockEnded(blockType: string, line: string) {
+	switch (blockType) {
+		case "html block type 1": // script, pre and style tags
+			return (/<\/(script|pre|style|textarea)>/i).test(line);
+		case "html block type 2": // html comments
+			return line.includes("-->")
+		case "html block type 3":
+			return line.includes("?>")
+		case "html block type 4": // declarartion types e.g <!DOCTYPE html>
+			return line.includes(">")
+		case "html block type 5": // CDATA
+			return line.includes("]]>")
+	}
+	return false;
+}
+
 
 /** The Common Mark spec defines 7 types of html block
  * Returns the type of html block that the line parameter starts */ 
 function getHtmlBlockType(text: string) {
 	let newNode: HtmlNode;
 	// let htmlPatterns = text.match(/\s*(<!--)(?!(?:>|->))/) || text.match(/<([^<\s>][^\s>]*)/);
-	let htmlPatterns = text.match(/^(<!--)(?!(?:>|->))/) || text.match(/^<([^<\s>]+)/);
+	let htmlPatterns = text.match(/^(<!--)(?!(?:>|->))/) || text.match(/^(<\/?)([^<\s>]+)/);
 	let type6Tags = ["address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", 
 					"center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", 
 					"figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", 
 					"h6", "head", "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu", 
 					"menuitem", "nav", "noframes", "ol", "optgroup", "option", "p", "param", "section", "source", 
-					"summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul",]
+					"summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul"]
+
 	if (!htmlPatterns) {
 		return null
 	}/*else if (dangerousHtmlTags.includes(htmlPatterns[1].toLowerCase())) {
 		return null
 	}*/
 	if (htmlPatterns[1] === "<!--") {
-		return "html block type 1"
+		return "html block type 2"
 	}else {
-		if (htmlPatterns[1].slice(0, 2) === "<?") {
-			return "html block type 2"
-		}else if (htmlPatterns[1].slice(0, 8) === "![CDATA[") {
+		if (htmlPatterns[1] === "<" && ["script", "pre", "style", "textarea"].includes(htmlPatterns[2].toLowerCase())) {
+			return "html block type 1"
+		}else if (htmlPatterns[1] === "<" && htmlPatterns[2][0] === "?") {
 			return "html block type 3"
-		}else if (htmlPatterns[1].slice(0, 2) === "!") {
+		}else if (htmlPatterns[1] === "<" && htmlPatterns[2][0] === "!") {
 			return "html block type 4"
-		}else if (["script", "pre", "style"].includes(htmlPatterns[1].toLowerCase())) {
+		}else if (htmlPatterns[1] === "<" && htmlPatterns[2].slice(0, 8) === "![CDATA[") {
 			return "html block type 5"
-		}else if (type6Tags.includes(htmlPatterns[1].toLowerCase())) {
+		}else if ((htmlPatterns[1] === "<" || htmlPatterns[1] === "</") && type6Tags.includes(htmlPatterns[2].toLowerCase())) {
 			return "html block type 6"
 		}else return null
 	}
-}
-
-function htmlBlockEnded(blockType: string, line: string) {
-	switch (blockType) {
-		case "html block type 1": // html comments
-			return line.includes("-->")
-		case "html block type 2":
-			return line.includes("?>")
-		case "html block type 3": // CDATA
-			return line.includes("]]>")
-		case "html block type 4": // declarartion types e.g <!DOCTYPE html>
-			return line.includes(">")
-		case "html block type 5": // script, pre and style tags
-			return (/<(?:\/script>)|(?:\/pre>)|(?:\/style>)/i).test(line);
-	}
-	return false;
 }
 
 function getLeafBlockType(textTokens: string[], markerIndex: number) {
@@ -379,23 +380,31 @@ function lineEndsFencedCodeBlock(nodeToClose: HtmlNode, textTokens: string[], ma
 }
 
 function textStartsWithClosingTag(text: string) {
-	let possibleClosingTagPatterns = text.match(/^\s*<\/[a-zA-z-][a-zA-Z0-9-]+(\s*)>\n/);
+	let possibleClosingTagPatterns = text.match(/^\s*<\/[a-zA-z-][a-zA-Z0-9-]+(\s*)>(\s*)/);
 	let newLineCharFoundPrev = false
 
 	if (!possibleClosingTagPatterns)
 		return false
 
-	let whiteSpace = possibleClosingTagPatterns[1]
+	let innerWhiteSpace = possibleClosingTagPatterns[1]
+	if (innerWhiteSpace) {
+		for (let i=0; i<innerWhiteSpace.length; i++){
+			let char = innerWhiteSpace[i]
 
-	for (let i=0; i<whiteSpace.length; i++){
-		let char = whiteSpace[i]
-
-		if (char === '\n' && newLineCharFoundPrev){
-			return false
-		}else if (char === '\n' && !newLineCharFoundPrev) {
-			newLineCharFoundPrev = true
+			if (char === '\n' && newLineCharFoundPrev){
+				return false
+			}else if (char === '\n' && !newLineCharFoundPrev) {
+				newLineCharFoundPrev = true
+			}
 		}
+
 	}
+	let outerWhiteSpace = possibleClosingTagPatterns[2]
+	if (outerWhiteSpace && outerWhiteSpace[outerWhiteSpace.length-1] !== '\n')
+		return false
+
+	return true
+	
 
 }
 
@@ -458,7 +467,7 @@ function textStartsWithOpeningTag(text: string) {
 			continue;
 		}else if (partBeingProcessed === "unquoted val" && (/"|'|=|<|>|`|/).test(char)) {
 			return false
-		}else if (partBeingProcessed !== "assignment operator" && finishedProcessing) {
+		}else if (partBeingProcessed !== "assignment operator" && finishedProcessing) {// (!["single quoted val", "double quoted val", "assignment operator"].includes(partBeingProcessed)) {
 			if (i <= text.length-2 && char === '/' && text[i+1] === '>'){
 				completeTag = true
 			}else if (char === '>') {
@@ -602,7 +611,7 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 
 
 			}else if (containerType === "blockquote") {
-				nearestOpenedAncestor.nodeName === "blockquote" && console.log(nearestOpenedAncestor, "\n....")
+				// nearestOpenedAncestor.nodeName === "blockquote" && console.log(nearestOpenedAncestor, "\n....")
 				const childLen = nearestOpenedAncestor.children.length;
 				if (nearestOpenedAncestor.children.length > 0){
 
@@ -663,14 +672,15 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 				// console.log(lastOpenedChildNode.textContent.replaceAll(" ", "."))
 			}
 			return containerParentNode
-		}else if (lastOpenedChildNode.nodeName.startsWith("html block")){
-			const content = joinText(textTokens, leafBlockStartIndex)
-			lastOpenedChildNode.textContent += content
-			if (htmlBlockEnded(lastOpenedChildNode.infoString, content))
-				lastOpenedChildNode.closed = true
-
-			return containerParentNode
-
+		}else if (lastOpenedChildNode.nodeName.startsWith("html block") && !lastOpenedChildNode.closed){
+			if (!lineIsBlank || !["html block type 6", "html block type 7"].includes(lastOpenedChildNode.nodeName)) {
+				const content = joinText(textTokens, 0).slice(containerParentNode.indentLevel)
+				if (htmlBlockEnded(lastOpenedChildNode.infoString, content)){
+					lastOpenedChildNode.closed = true
+				}
+				lastOpenedChildNode.textContent += content
+				return containerParentNode
+			}
 		}
 
 	}
@@ -801,9 +811,19 @@ function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: stri
 			{parentNode: containerParentNode, nodeName: `h${marker.length}`, closed: true, children: [], textContent: getATXHeaderContent(textTokens, leafBlockStartIndex)}
 		)
 	}else if (potentialBlockType && potentialBlockType.startsWith("html block")) {
-		containerParentNode.children.push(
-			{parentNode: containerParentNode, nodeName: "html block", closed: false, textContent: joinText(textTokens, leafBlockStartIndex), infoString: potentialBlockType, children: []}
-		)
+		const newHtmlBlockNode: HtmlNode = {
+			parentNode: containerParentNode, 
+			nodeName: potentialBlockType, // change to "html block", code should check info string if the type is needed
+			closed: false, 
+			textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel), 
+			infoString: potentialBlockType,
+			children: []
+		}
+		containerParentNode.children.push(newHtmlBlockNode)
+
+		if (htmlBlockEnded(newHtmlBlockNode.infoString, newHtmlBlockNode.textContent)){
+			newHtmlBlockNode.closed = true
+		}
 	}
 	if (outerMostBlockQuoteNode) {
 		containerParentNode = outerMostBlockQuoteNode.parentNode

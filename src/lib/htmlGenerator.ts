@@ -298,7 +298,7 @@ function getFirstWord(str: string) {
 // Generates the html representation of a node
 function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 	if (node.nodeName.startsWith("html block")) { // "html block type 7"
-		return `${node.textContent.trim()}\n`
+		return `${node.textContent.trimEnd()}\n`
 	}else if (node.nodeName === "paragraph") {
 		if (node.infoString === "loose") {
 			return node.textContent ? `<p>${node.textContent.trim()}</p>\n` : "";
@@ -319,8 +319,9 @@ function generateNodeHtml(node: HtmlNode, indentLevel: number) {
 				break;
 			}
 		}
-		if (contentEndIndex > -1)
+		if (contentEndIndex > -1){
 			node.textContent = node.textContent.slice(0, contentEndIndex)
+		}
 
 		if (node.textContent)
 			node.textContent+='\n'
