@@ -1,4 +1,6 @@
-import type {HtmlNode} from "../index"
+import type {HtmlNode, LinkRefDataMap} from "../index"
+import { extractLinkRefsData } from "./inlineNodesParser/linkGenerator"
+import { getHtmlTagEndPos } from "./inlineNodesParser"
 
 function lineRepsThematicBreak(textTokens: string[], startIndex: number) {
 	let firstNWChar = ""
@@ -79,15 +81,6 @@ function tokenizeLine(text: string, startIndex: number): [string[], number] {
 	return [tokens, i]
 }
 
-function continueLastOpenedNodeContent(lastOpenedNode: HtmlNode, textTokens: string[]) {
-	if (lastOpenedNode.nodeName === "indented code block"){
-		return false
-	}else if (lastOpenedNode.nodeName.startsWith("fenced code")) {
-		return false
-	}
-}
-
-
 function getATXHeaderContent(textTokens: string[], markerIndex: number) {
 	let content = ""
 	let startTokenIndex = -1;
@@ -108,17 +101,6 @@ function getATXHeaderContent(textTokens: string[], markerIndex: number) {
 	return content 
 
 }
-
-function getNearestUnclosedAncestor(lastOpenedNode: HtmlNode, indentLevel: number): HtmlNode {
-	if (lastOpenedNode.indentLevel && (lastOpenedNode.indentLevel < indentLevel)) {
-		if (["ul", "ol"].includes(lastOpenedNode.nodeName))
-			return lastOpenedNode.parentNode
-		return lastOpenedNode
-	}
-	return getNearestUnclosedAncestor(lastOpenedNode.parentNode, indentLevel)
-
-}
-
 
 
 function replaceTabsWithSpaces(text: string, charCountBeforeText: number) {
@@ -179,9 +161,10 @@ function joinText(textTokens: string[], startIndex:number=0) {
 
 
 function getNearestOpenedAncestor(currNode: HtmlNode, indentLvl: number): HtmlNode {
-	if (["root", "li"].includes(currNode.nodeName) && currNode.indentLevel <= indentLvl){
-		if (!currNode.closed)
+	if (["root", "li", "blockquote"].includes(currNode.nodeName) && currNode.indentLevel <= indentLvl){
+		if (!currNode.closed){
 			return currNode
+		}
 	}
 
 	return getNearestOpenedAncestor(currNode.parentNode, indentLvl)
@@ -194,6 +177,8 @@ function getContainerBlockType(marker: string) {
 	}else if ("-+*".includes(marker)) {
 		return "list item " + marker
 	}else if ((/^\d{1,9}(?:\.|\))$/).test(marker)){
+		if (marker.length > 11)
+			return null
 		if (marker[marker.length-1] === ".")
 			return "list item n."
 		return "list item n)"
@@ -273,7 +258,7 @@ function getHtmlBlockType(text: string) {
 			return "html block type 1"
 		}else if (htmlPatterns[1] === "<" && htmlPatterns[2][0] === "?") {
 			return "html block type 3"
-		}else if (htmlPatterns[1] === "<" && htmlPatterns[2][0] === "!") {
+		}else if (htmlPatterns[1] === "<" && htmlPatterns[2][0] === "!") { // this should be checked after block 5
 			return "html block type 4"
 		}else if (htmlPatterns[1] === "<" && htmlPatterns[2].slice(0, 8) === "![CDATA[") {
 			return "html block type 5"
@@ -283,7 +268,7 @@ function getHtmlBlockType(text: string) {
 	}
 }
 
-function getLeafBlockType(textTokens: string[], markerIndex: number) {
+function getLeafBlockType(textTokens: string[], markerIndex: number): string {
 	const marker = textTokens[markerIndex]
 	if (marker[0] === "#") {
 		if (markerIndex !== textTokens.length-1 && (/\s/).test(textTokens[markerIndex+1][0]))
@@ -302,7 +287,7 @@ function getLeafBlockType(textTokens: string[], markerIndex: number) {
 	const htmlBlockType = getHtmlBlockType(marker)
 	if (htmlBlockType)
 		return htmlBlockType
-	else return "plain text"
+	else return "indeterminate"
 }
 
 
@@ -379,478 +364,595 @@ function lineEndsFencedCodeBlock(nodeToClose: HtmlNode, textTokens: string[], ma
 
 }
 
-function textStartsWithClosingTag(text: string) {
-	let possibleClosingTagPatterns = text.match(/^\s*<\/[a-zA-z-][a-zA-Z0-9-]+(\s*)>(\s*)/);
-	let newLineCharFoundPrev = false
 
-	if (!possibleClosingTagPatterns)
-		return false
-
-	let innerWhiteSpace = possibleClosingTagPatterns[1]
-	if (innerWhiteSpace) {
-		for (let i=0; i<innerWhiteSpace.length; i++){
-			let char = innerWhiteSpace[i]
-
-			if (char === '\n' && newLineCharFoundPrev){
-				return false
-			}else if (char === '\n' && !newLineCharFoundPrev) {
-				newLineCharFoundPrev = true
-			}
-		}
-
-	}
-	let outerWhiteSpace = possibleClosingTagPatterns[2]
-	if (outerWhiteSpace && outerWhiteSpace[outerWhiteSpace.length-1] !== '\n')
-		return false
-
-	return true
-	
-
-}
-
-function textStartsWithOpeningTag(text: string) {
-	let partBeingProcessed = ""
-	let finishedProcessing =  false
-	let newLineCharFoundPrev = false
-	let completeTag = false
-
-	const possComponentsBeforeAttribute = ["tag name", "single quoted val", "double quoted val", "unquoted val", "attribute name"]
-
-	for (let i=0; i<text.length; i++) {
-		let char = text[i]
-		if (completeTag && !(/\s/).test(char))
-			return false
-		else if (completeTag && char === '\n')
-			break;
-
-		if (!["single quoted val", "double quoted val"].includes(partBeingProcessed) && (/\s/).test(char)) {
-			if (char === '\n' && newLineCharFoundPrev){
-				return false
-			}else if (char === '\n' && !newLineCharFoundPrev) {
-				newLineCharFoundPrev = true
-			}
-			if (!finishedProcessing) {
-				finishedProcessing = true
-			}
-			continue
-		}
-
-		if (!partBeingProcessed) {
-			if (char === '<')
-				partBeingProcessed = "start delimiter"
-			else
-				return false;
-		}else if (partBeingProcessed === "start delimiter" && (/[a-zA-z-]/).test(char)) {
-			if (finishedProcessing) // white space after '<'? 
-				return false // NO!!
-			partBeingProcessed = "tag name"
-		}else if (partBeingProcessed === "tag name" && !(/[a-zA-Z0-9-]/).test(char)) {
-			return false
-		}else if (possComponentsBeforeAttribute.includes(partBeingProcessed) && finishedProcessing && (/[a-zA-Z_:]/).test(char)) {
-			partBeingProcessed = "attribute name"
-		}else if (partBeingProcessed === "attribute name" && char === "=") {
-			partBeingProcessed = "assignment operator"
-		}else if (partBeingProcessed === "attribute name" && !(/[a-zA-Z0-9_:.]/).test(char)) {
-			return false
-		}else if (partBeingProcessed === "assignment operator" && !(/[=<>`]/).test(char)) {
-			if (char === "'")
-				partBeingProcessed = "single quoted val"
-			else if (char === '"')
-				partBeingProcessed = "double quoted val"
-			else
-				partBeingProcessed = "unquoted val"
-		}else if (partBeingProcessed === "single quoted val" && char === "'" && !finishedProcessing) {
-			finishedProcessing = true
-			continue;
-		}else if (partBeingProcessed === "double quoted val" && char === '"' && !finishedProcessing) {
-			finishedProcessing = true
-			continue;
-		}else if (partBeingProcessed === "unquoted val" && (/"|'|=|<|>|`|/).test(char)) {
-			return false
-		}else if (partBeingProcessed !== "assignment operator" && finishedProcessing) {// (!["single quoted val", "double quoted val", "assignment operator"].includes(partBeingProcessed)) {
-			if (i <= text.length-2 && char === '/' && text[i+1] === '>'){
-				completeTag = true
-			}else if (char === '>') {
-				completeTag = true
-			}
-		}
-
-		if (finishedProcessing) {
-			newLineCharFoundPrev = false
-			finishedProcessing = false
+function continueFencedCodeBlockContent(textTokens: string[], fencedCodeNode: HtmlNode, parentNode: HtmlNode) {
+	let lineContent =  joinText(textTokens, 0)
+	if (parentNode.indentLevel === fencedCodeNode.indentLevel){
+		fencedCodeNode.textContent += lineContent.slice(parentNode.indentLevel)
+	}else {
+		const potIndentBeforeMarker = lineContent.slice(parentNode.indentLevel, fencedCodeNode.indentLevel)
+		if ((/^\s+$/).test(potIndentBeforeMarker)) {
+			// indent is greater than or equal to code block's start delimiter indent
+			fencedCodeNode.textContent += lineContent.slice(fencedCodeNode.indentLevel)
+		}else {
+			// indent is less than code block's start delimiter indent 
+			// so the whitespace beefore the catual content needs to be removed
+			if ((/^\s+$/).test(lineContent)){
+				fencedCodeNode.textContent += lineContent
+			}else fencedCodeNode.textContent += lineContent.slice(parentNode.indentLevel).trimStart();
 		}
 	}
-
-	if (completeTag)
-		return true
-	return false
 }
 
 
 function checkIfTextIsHTMLBlock7(text: string) {
-	if (textStartsWithClosingTag(text) || textStartsWithOpeningTag(text)) {
+	const tagEndPos = getHtmlTagEndPos(0, text, ["pre", "script", "style", "textarea"])
+
+	if (tagEndPos > -1){
+		for (let i=tagEndPos+1; i<text.length; i++) {
+			if (text[i] === '\n') {
+				return true
+			}else if ((/\S/).test(text[i])){
+				return false
+			}
+		}
 		return true
 	}
 	return false
 }
 
-function listIsLoose(listNode: HtmlNode): boolean {
-
-	for (let i=0; i<listNode.children.length; i++) {
-		let listItemNode = listNode.children[i]
-		if (i !== listNode.children.length-1) {
-			if (listItemNode.children[listItemNode.children.length-1] && listItemNode.children[listItemNode.children.length-1].nodeName === "blank"){
-				return true
-			}
-		}
-
-		for (let j=1; j<listItemNode.children.length-1; j++) {
-			if (listItemNode.children[j].nodeName === "blank")
-				return true				
-		}
-
-	}
-	return false
-
+function getNearestRootlikeAncestor(node: HtmlNode): HtmlNode {
+	if (node.nodeName === "blockquote" || node.nodeName === "root") {
+		return node
+	}else return getNearestRootlikeAncestor(node.parentNode)
 }
 
-
-// what if it's an empty string?
-function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: string[]) {
-	let indentLevel = -1
-	let nearestOpenedAncestor = null
-	let leafBlockStartIndex = -1
-	let lastWhiteSpaceChunk = ""
-	let lineIsAThematicBreak = false
-	let lineIsBlank = false
-	let outerMostBlockQuoteNode = null
-	let terminalNode = null
-
-	for (let i=0;i<textTokens.length;i++) {
-		const text = textTokens[i];
-
-		if ((/\s/).test(text[0])){
-			if (textTokens.length == 1){
-				lineIsBlank = true
-				break;
-			}
-
-			lastWhiteSpaceChunk = replaceTabsWithSpaces(text, indentLevel+1)
-			textTokens[i] = lastWhiteSpaceChunk // prevents  bugs when slicing content
-			indentLevel += lastWhiteSpaceChunk.length // We want indent level to be the last space character index by design
+function getNodeClosableByBlankLine(node: HtmlNode): HtmlNode {
+	while (true) {
+		const childrenLen = node.children ? node.children.length : 0
+		if (node.nodeName === "blockquote" || childrenLen === 0) {
+			return node
 		}else {
-			if (!nearestOpenedAncestor){
-				indentLevel++;
-				nearestOpenedAncestor = getNearestOpenedAncestor(lastOpenedContainerNode, indentLevel)
-			}
+			node = node.children[childrenLen-1]
+		}
+	}
+}
 
-			if (nearestOpenedAncestor.children.length > 0) {
-				const lastChild = nearestOpenedAncestor.children[nearestOpenedAncestor.children.length-1]
+function closeLeafNodeTerminatedByBlankLine(containerNodeLastProcessed: HtmlNode, tokenStartIndex: number) {
+	let nodeAffectedByBlankLine = containerNodeLastProcessed;
+	if (nodeAffectedByBlankLine.nodeName !== "blockquote"){
+		// should we just keep a ref to root in the first place since we are effectively going there anyways
+		// nodeAffectedByBlankLine = getNearestOpenedAncestor(containerNodeLastProcessed, tokenStartIndex)
+		nodeAffectedByBlankLine = getNearestRootlikeAncestor(containerNodeLastProcessed)
+	}
 
-				if (lastChild.nodeName.startsWith("fenced code") || lastChild.nodeName.startsWith("html block")) {
-					leafBlockStartIndex = i;
-					break;
-				}
+	if (nodeAffectedByBlankLine.children.length > 0){
+		let affectedChildNode = getNodeClosableByBlankLine(nodeAffectedByBlankLine.children[nodeAffectedByBlankLine.children.length-1])
 
-			}
+		if (affectedChildNode.nodeName === "li")
+			affectedChildNode.closed = true
+			// if (affectedChildNode.parentNode.children.length === 1)
+			// 	affectedChildNode = mergeWithPrevParagraphIfAny(affectedChildNode)
+		else if (["paragraph",  "blockquote"].includes(affectedChildNode.nodeName) || 
+			["html block type 6", "html block type 7"].includes(affectedChildNode.infoString)) {
+			affectedChildNode.closed = true
+		}
 
-			if (nearestOpenedAncestor && nearestOpenedAncestor.nodeName === "li") {
-				if (nearestOpenedAncestor.children.length == 0 && lastWhiteSpaceChunk.length < 4){
-					nearestOpenedAncestor.indentLevel += (-1 + lastWhiteSpaceChunk.length)
-				}
-			}
-
-			if (nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4) {
-				leafBlockStartIndex = i;
-				break;
-			}
-
-			if (lineRepsThematicBreak(textTokens, i)){
-				lineIsAThematicBreak = true;
-				leafBlockStartIndex = i;
-				break;
-			}
-
-			const containerType = getContainerBlockType(text)
-
-			if (!containerType) {
-				leafBlockStartIndex = i;
-				break;
-			}
-
-			lastWhiteSpaceChunk = ""
-			if (containerType.startsWith("list item")) {
-				if (i !== textTokens.length-1 && !(/\s/).test(textTokens[i+1][0])) {
-					leafBlockStartIndex = i;
-					break;
-				}
-				let newListItemNode: HtmlNode = {parentNode: null, nodeName: "li", indentLevel: -1, closed: false, children: []}
-				let parentListNode = null
-
-				if (nearestOpenedAncestor.children.length > 0 ) {
-					const potentialParentList = nearestOpenedAncestor.children[nearestOpenedAncestor.children.length-1]
-
-					if (potentialParentList.nodeName === "paragraph") {
-						if (i === textTokens.length-1 || (i === textTokens.length-2 && (/\s/).test(textTokens[i+1][0]))) {
-							leafBlockStartIndex = i;
-							break;
-						}
-					}
-					if (potentialParentList.infoString === containerType && ["ol", "ul"].includes(potentialParentList.nodeName)) {
-						parentListNode = potentialParentList
-					}
-				}
-				if (!parentListNode) {
-					parentListNode = getListNode(nearestOpenedAncestor, containerType, textTokens[i])
-					nearestOpenedAncestor.children.push(parentListNode)
-				}
-				newListItemNode.parentNode = parentListNode;
-				newListItemNode.indentLevel = indentLevel + (text.length-1) + 2
-				parentListNode.children.push(newListItemNode)
-				nearestOpenedAncestor = newListItemNode
-
-
-			}else if (containerType === "blockquote") {
-				// nearestOpenedAncestor.nodeName === "blockquote" && console.log(nearestOpenedAncestor, "\n....")
-				const childLen = nearestOpenedAncestor.children.length;
-				if (nearestOpenedAncestor.children.length > 0){
-
-					const lastChildNode = nearestOpenedAncestor.children[childLen-1]
-					if (lastChildNode.nodeName === "blockquote" && !lastChildNode.closed){
-						nearestOpenedAncestor = nearestOpenedAncestor.children[0]
-						continue;
-					}
-				}
-				const newNode: HtmlNode = {parentNode: nearestOpenedAncestor, nodeName: "blockquote",indentLevel: nearestOpenedAncestor.indentLevel+1, closed: false, children: []};
-				if ((/\s/).test(textTokens[i+1][0])) {
-					newNode.indentLevel += 1;
-				}
-				nearestOpenedAncestor.children.push(newNode)
-				nearestOpenedAncestor = newNode
-
-				if (!outerMostBlockQuoteNode)
-					outerMostBlockQuoteNode = nearestOpenedAncestor;
-			}
+		if (affectedChildNode.closed) {
+			nodeAffectedByBlankLine.children.push({parentNode: nodeAffectedByBlankLine, nodeName: "blank", closed: true, children: []});
+			return containerNodeLastProcessed;
 		}
 	}
 	
-	let containerParentNode = null
-	if (!nearestOpenedAncestor) {
-		containerParentNode = lastOpenedContainerNode
-	}else{
-		if (nearestOpenedAncestor.nodeName === "blockquote") {
-			if (leafBlockStartIndex === -1){
-				lineIsBlank = true
-			}
-		}
-		containerParentNode = nearestOpenedAncestor
+	return null
+}
+
+
+function markerRepsValidListItem(textTokens: string[], markerIndex: number, markerType: string, listItemAncestor: HtmlNode) {
+	let nextToken = null
+	if (markerIndex !== textTokens.length-1){
+		nextToken = textTokens[markerIndex+1]
 	}
 
-	let childrenLen = containerParentNode.children.length
+	let interruptedParagraph = null
+	if (listItemAncestor.children.length > 0 && 
+		listItemAncestor.children[listItemAncestor.children.length-1].nodeName === "paragraph"){
+		interruptedParagraph = listItemAncestor.children[listItemAncestor.children.length-1]
+	}
+
+	if (interruptedParagraph) {
+		if (!nextToken || (markerIndex === textTokens.length-2 && !(/\s/).test(nextToken[0]))) {
+			return false
+		}else if ((markerType === "list item n." || markerType === "list item n)") && !(/^1(?:\.|\))/).test(textTokens[markerIndex])) {
+			return false
+		}
+	}
+
+	if (nextToken && !(/\s/).test(nextToken[0])) {
+		return false
+	}
+	return true
+}
+
+
+function getLastListNodeChild(node: HtmlNode){
+	for (let i=node.children.length-1; i>=0; i--) {
+		if (node.children[i].nodeName === "ol" || node.children[i].nodeName === "ul"){
+			return node.children[i]
+		}else if (i==0 || node.children[i].nodeName !== "blank"){
+			return node.children[i]
+		}
+	}
+}
+
+
+function addNewListItemNodeToTree(ancestorNode: HtmlNode, listType: string, listItemMarker: string) {
+	let newListItemNode: HtmlNode = {parentNode: null, nodeName: "li", indentLevel: -1, closed: false, children: []}
+	let parentListNode = null
+
+	if (ancestorNode.children.length > 0 ) {
+
+		let potentialParentList = getLastListNodeChild(ancestorNode)
+		if (potentialParentList.infoString === listType && ["ol", "ul"].includes(potentialParentList.nodeName)) {
+			parentListNode = potentialParentList
+		}
+	}
+	if (!parentListNode) {
+		parentListNode = getListNode(ancestorNode, listType, listItemMarker)
+		if (ancestorNode.nodeName === "li"){
+			let nearestRootLikeAncestor = getNearestRootlikeAncestor(ancestorNode)
+			const lastChildNode = nearestRootLikeAncestor.children[nearestRootLikeAncestor.children.length-1]
+			if (lastChildNode.nodeName === "blank"){
+				lastChildNode.parentNode = ancestorNode
+				ancestorNode.children.push(nearestRootLikeAncestor.children.pop())
+			}
+		}
+		ancestorNode.children.push(parentListNode)
+	}else {
+		let nearestRootLikeAncestor = getNearestRootlikeAncestor(parentListNode)
+		const lastChildNode = nearestRootLikeAncestor.children[nearestRootLikeAncestor.children.length-1]
+		if (lastChildNode.nodeName === "blank"){
+			lastChildNode.parentNode = parentListNode
+			parentListNode.children.push(nearestRootLikeAncestor.children.pop())
+		}
+	}
+	newListItemNode.parentNode = parentListNode;
+
+	parentListNode.children.push(newListItemNode)
+	return newListItemNode
+}
+
+function addIndentedCodeNode(textTokens: string[], contentStartIndex: number, parentNode: HtmlNode) {
+	let lastOpenedChildNode = null;
+	let childrenLen = parentNode.children.length
 
 	if (childrenLen > 0){
-		let lastOpenedChildNode = containerParentNode.children[childrenLen-1]
-		if (lastOpenedChildNode.nodeName.startsWith("fenced code") && !lastOpenedChildNode.closed){
-			if (lastWhiteSpaceChunk.length < 4 && lineEndsFencedCodeBlock(lastOpenedChildNode, textTokens, leafBlockStartIndex)) {
-				lastOpenedChildNode.closed = true
-			}else{
-				let lineContent =  joinText(textTokens, 0)
-				if (containerParentNode.indentLevel === lastOpenedChildNode.indentLevel){
-					lastOpenedChildNode.textContent += lineContent.slice(containerParentNode.indentLevel)
-				}
-				else {
-					const potIndentBeforeMarker = lineContent.slice(containerParentNode.indentLevel, lastOpenedChildNode.indentLevel)
-					if ((/^\s+$/).test(potIndentBeforeMarker)) {
-						// indent is greater than or equal to code block's start delimiter indent
-						lastOpenedChildNode.textContent += lineContent.slice(lastOpenedChildNode.indentLevel)
-					}else {
-						// indent is less than code block's start delimiter indent 
-						// so the whitespace beefore the catual content needs to be removed
-						lastOpenedChildNode.textContent += lineContent.slice(containerParentNode.indentLevel).trimStart()
-					}
-				}
-				// console.log(lastOpenedChildNode.textContent.replaceAll(" ", "."))
-			}
-			return containerParentNode
-		}else if (lastOpenedChildNode.nodeName.startsWith("html block") && !lastOpenedChildNode.closed){
-			if (!lineIsBlank || !["html block type 6", "html block type 7"].includes(lastOpenedChildNode.nodeName)) {
-				const content = joinText(textTokens, 0).slice(containerParentNode.indentLevel)
-				if (htmlBlockEnded(lastOpenedChildNode.infoString, content)){
-					lastOpenedChildNode.closed = true
-				}
-				lastOpenedChildNode.textContent += content
-				return containerParentNode
+		lastOpenedChildNode = parentNode.children[childrenLen-1]
+		if (lastOpenedChildNode.nodeName !== "indented code block") {
+			if (getInnerMostOpenParagraphNode(parentNode)) {
+				return "plain text"
 			}
 		}
-
 	}
+	parentNode.children.push(
+		{parentNode: parentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(parentNode.indentLevel+4), children: []}
+	)
+	return "indented code block"
+}
 
-	let potentialBlockType = null
+function updateIndentedCodeNodeContent(textTokens: string[], contentStartIndex: number, parentNode: HtmlNode, lineIsBlank: boolean) {
+	let lastOpenedChildNode = null;
+	let childrenLen = parentNode.children.length
 
-	if (!lineIsBlank && leafBlockStartIndex > -1) {
-		// textToken = textTokens[leafBlockStartIndex];
-		if (nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4)
-			potentialBlockType = "indented code block"
-		else
-			potentialBlockType = getLeafBlockType(textTokens, leafBlockStartIndex);
+	if (childrenLen > 0){
+		lastOpenedChildNode = parentNode.children[childrenLen-1]
+		if (lastOpenedChildNode.nodeName === "indented code block") {
+			if (lineIsBlank){
+				let content = joinText(textTokens, contentStartIndex).slice(parentNode.indentLevel+4)
+				if (content)
+					lastOpenedChildNode.textContent += content
+				else
+					lastOpenedChildNode.textContent += '\n'
+			}else
+				lastOpenedChildNode.textContent += joinText(textTokens, 0).slice(parentNode.indentLevel+4)
+			return true
+		}else return false
 	}
+	return false
+}
 
 
-	if ((nearestOpenedAncestor?.indentLevel !== undefined && (indentLevel - nearestOpenedAncestor.indentLevel) >= 4) || lineIsBlank) {
-
-		let lastOpenedChildNode = null;
-
-		if (childrenLen > 0){
-			lastOpenedChildNode = containerParentNode.children[childrenLen-1]
-			if (lastOpenedChildNode.nodeName === "indented code block") {
-				if (lineIsBlank){
-					let content = joinText(textTokens, 0).slice(containerParentNode.indentLevel+4)
-					if (content)
-						lastOpenedChildNode.textContent += content
-					else
-						lastOpenedChildNode.textContent += '\n'
-				}else
-					lastOpenedChildNode.textContent += joinText(textTokens, 0).slice(containerParentNode.indentLevel+4)
-			}else if (!lineIsBlank) {
-				let continuedParagraph = getInnerMostOpenParagraphNode(containerParentNode)
-				if (continuedParagraph)
-					potentialBlockType = "plain text"
-				else {
-					containerParentNode.children.push(
-						{parentNode: containerParentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel+4), children: []}
-					)
-				}
-			}
-		}else if (!lineIsBlank) {
-			containerParentNode.children.push(
-				{parentNode: containerParentNode, nodeName: "indented code block", closed: false, textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel+4), children: []}
-			)
+function addOrUpdateParagraphNode(textTokens: string[], lastOpenedAncestor: HtmlNode, contentStartIndex: number) {
+	let continuedParagraph = getInnerMostOpenParagraphNode(lastOpenedAncestor)
+	if (continuedParagraph) {
+		continuedParagraph.textContent += joinText(textTokens, contentStartIndex).trimStart();
+	}else {
+		let blockType = "paragraph"
+		let infoString = ""
+		let content = joinText(textTokens, 0).slice(lastOpenedAncestor.indentLevel)
+		const textIsHtmlBlock7 = checkIfTextIsHTMLBlock7(content)
+		if (textIsHtmlBlock7){
+			blockType = "html block"
+			infoString = "html block type 7"
 		}
+		lastOpenedAncestor.children.push(
+			{parentNode: lastOpenedAncestor, nodeName: blockType, infoString, closed: false, children: [], textContent: joinText(textTokens, contentStartIndex)}
+		)
+		return true
 	}
+	return false
+}
 
-
-	if (lineIsBlank){
-		let nodeAffectedByBlankLine = containerParentNode;
-		
-		while (true) {
-			const childrenLen = nodeAffectedByBlankLine.children.length
-			if (childrenLen === 0) {
-				break;
-			}
-			let lastChildNode = nodeAffectedByBlankLine.children[childrenLen-1]
-			
-			if (lastChildNode.parentNode.nodeName === "li") {
-				if (lastChildNode.nodeName !== "blank"){
-					if (lastChildNode.parentNode.children.length === 0)
-						lastChildNode.parentNode.closed = true // list item can't start with more than one blank line
-					lastChildNode.parentNode.children.push({parentNode: lastChildNode.parentNode, nodeName: "blank", closed: true, children: []})
-				}
-			}
-			if (["paragraph", "html block type 6", "html block type 7",  "blockquote"].includes(lastChildNode.nodeName)) {
-				lastChildNode.closed = true
-			}
-
-			if (lastChildNode.closed)
-				break;
-
-			nodeAffectedByBlankLine = lastChildNode;
-		}
-
-		return containerParentNode;
+function addSetextHeaderNode(headerParentNode: HtmlNode, headerType: string, linkRefsMap: LinkRefDataMap) {
+	let paragraphBeforeLine = null
+	if (headerParentNode.children.length > 0 && headerParentNode.children[headerParentNode.children.length-1].nodeName === "paragraph") {
+		paragraphBeforeLine = headerParentNode.children[headerParentNode.children.length-1]
+	}
+	if (paragraphBeforeLine && !paragraphBeforeLine.closed) {
+		let newText = extractLinkRefsData(paragraphBeforeLine.textContent.trim(), linkRefsMap);
+		if (newText) {
+			paragraphBeforeLine.nodeName = headerType === "setext header h1" ? "h1" : "h2"
+			paragraphBeforeLine.textContent = newText;
+			paragraphBeforeLine.closed = true
+		}else {
+			return null
+		}			
+		return paragraphBeforeLine
 
 	}
+	return null
+}
 
+function addHtmlBlockNode(parentNode: HtmlNode, textTokens: string[], htmlBlockType: string) {
+	const newHtmlBlockNode: HtmlNode = {
+		parentNode, 
+		nodeName: "html block",
+		closed: false, 
+		textContent: joinText(textTokens, 0).slice(parentNode.indentLevel), 
+		infoString: htmlBlockType,
+		children: []
+	}
+	parentNode.children.push(newHtmlBlockNode)
+
+	if (htmlBlockEnded(newHtmlBlockNode.infoString, newHtmlBlockNode.textContent)){
+		newHtmlBlockNode.closed = true
+	}
+	return newHtmlBlockNode
+}
+
+function addNonParagraphLeafBlockNode(
+	potentialBlockType: string, containerParentNode: HtmlNode, textTokens: string[], leafBlockStartIndex: number, lastWhiteSpaceChunk: string, linkRefsMap: LinkRefDataMap,
+	lineIsAThematicBreak: boolean) {
 	if (potentialBlockType && potentialBlockType.startsWith("fenced code")) {
 		const codeBlockNode = getFencedCodeBlockNode(textTokens, leafBlockStartIndex)
 		if (codeBlockNode) {
 			codeBlockNode.parentNode = containerParentNode;
 			codeBlockNode.indentLevel = containerParentNode.indentLevel + lastWhiteSpaceChunk.length
 			containerParentNode.children.push(codeBlockNode)
-			return containerParentNode;
+			return codeBlockNode;
 		}else {
-			potentialBlockType = "plain text"
+			return null
 		}
 	}else if (potentialBlockType && potentialBlockType.startsWith("setext header")) {
-		let paragraphBeforeLine = null
-		if (containerParentNode.children.length > 0 && containerParentNode.children[containerParentNode.children.length-1].nodeName === "paragraph") {
-			paragraphBeforeLine = containerParentNode.children[containerParentNode.children.length-1]
-		}
-		if (paragraphBeforeLine && !paragraphBeforeLine.closed) {
-			paragraphBeforeLine.nodeName = potentialBlockType === "setext header h1" ? "h1" : "h2"
-			paragraphBeforeLine.textContent = paragraphBeforeLine.textContent.trim()
-			paragraphBeforeLine.closed = true
-			return containerParentNode;
-		}else {
-			potentialBlockType = "plain text"
-		}
+		const nodeAdded = addSetextHeaderNode(containerParentNode, potentialBlockType, linkRefsMap)
+		if (nodeAdded) // valid setext header and not possiblya thematic break
+			return nodeAdded
 	}
 
 	if (lineIsAThematicBreak) {
 		containerParentNode.children.push({parentNode: containerParentNode, nodeName: "hr", closed: true, children: []});
-		return containerParentNode;
-	}	
+		return containerParentNode.children[containerParentNode.children.length-1]
+	}
 
-	if (potentialBlockType == "plain text") {
-		let continuedParagraph = getInnerMostOpenParagraphNode(containerParentNode)
-		if (continuedParagraph) {
-			continuedParagraph.textContent += joinText(textTokens, leafBlockStartIndex)
-		}else {
-			let blockType = "paragraph"
-			let content = joinText(textTokens, 0).slice(containerParentNode.indentLevel)
-			const textIsHtmlBlock7 = checkIfTextIsHTMLBlock7(content)
-			if (textIsHtmlBlock7){
-				blockType = "html block type 7"
-			}
-			containerParentNode.children.push(
-				{parentNode: containerParentNode, nodeName: blockType, closed: false, children: [], textContent: joinText(textTokens, leafBlockStartIndex)}
-			)
-		}
-	}else if (potentialBlockType === "header") {
+	if (potentialBlockType === "header") {
 		let marker = textTokens[leafBlockStartIndex];
 		containerParentNode.children.push(
 			{parentNode: containerParentNode, nodeName: `h${marker.length}`, closed: true, children: [], textContent: getATXHeaderContent(textTokens, leafBlockStartIndex)}
 		)
+		return containerParentNode.children[containerParentNode.children.length-1]
 	}else if (potentialBlockType && potentialBlockType.startsWith("html block")) {
-		const newHtmlBlockNode: HtmlNode = {
-			parentNode: containerParentNode, 
-			nodeName: potentialBlockType, // change to "html block", code should check info string if the type is needed
-			closed: false, 
-			textContent: joinText(textTokens, 0).slice(containerParentNode.indentLevel), 
-			infoString: potentialBlockType,
-			children: []
-		}
-		containerParentNode.children.push(newHtmlBlockNode)
-
-		if (htmlBlockEnded(newHtmlBlockNode.infoString, newHtmlBlockNode.textContent)){
-			newHtmlBlockNode.closed = true
-		}
+		const newHtmlBlockNode = addHtmlBlockNode(containerParentNode, textTokens, potentialBlockType)
+		return newHtmlBlockNode
 	}
-	if (outerMostBlockQuoteNode) {
-		containerParentNode = outerMostBlockQuoteNode.parentNode
-		outerMostBlockQuoteNode = null
-	}
-
-	if (containerParentNode.nodeName === "li"){
-		if (containerParentNode.parentNode.tight === "true" && listIsLoose(containerParentNode.parentNode))
-			containerParentNode.parentNode.tight = "false"; // change to boolean type later since we are sure now
-	}
-	return containerParentNode
-
+	return null
 }
 
 
-export default function generateBlockNodesTree2(textStream: string, dangerousHtml: string[]) {
+function getLastUnclosedContainerChild(node: HtmlNode): HtmlNode {
+	let lastChildNode = null
+	if (node.children && node.children.length > 0)
+		lastChildNode = node.children[node.children.length-1];
+
+	if (!node.closed && lastChildNode && ["li", "ul", "ol", "blank"].includes(lastChildNode.nodeName)){
+		if (lastChildNode.nodeName === "blank" && node.children.length > 0)
+			return getLastUnclosedContainerChild(node.children[node.children.length-2])
+		return getLastUnclosedContainerChild(node.children[node.children.length-1])
+	}else {
+		return node
+	}
+}
+
+
+function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: string[], linkRefsMap: LinkRefDataMap) {
+	let tokenEndIndex = -1
+	let tokenStartIndex = -1
+	let nearestOpenedAncestor = null
+	let lastWhiteSpaceChunk = ""
+	let lineIsAThematicBreak = false
+	let lineIsBlank = false
+	let outerMostBlockQuoteNode = null
+
+	for (let i=0;i<textTokens.length;i++) {
+		const text = textTokens[i];
+		tokenStartIndex = tokenEndIndex + 1
+
+		if ((/\s/).test(text[0])){
+			if (i === textTokens.length-1 && (textTokens.length === 1 || nearestOpenedAncestor?.nodeName === "blockquote")){
+				lineIsBlank = true
+			}else {
+				lastWhiteSpaceChunk = replaceTabsWithSpaces(text, tokenEndIndex+1)
+				textTokens[i] = lastWhiteSpaceChunk // prevents bugs when slicing content
+				tokenEndIndex += lastWhiteSpaceChunk.length // We want indent level to be the last space character index by design
+				continue;
+			}
+		}
+
+		if (nearestOpenedAncestor && nearestOpenedAncestor.nodeName === "blockquote"){
+			lastOpenedContainerNode = getLastUnclosedContainerChild(nearestOpenedAncestor)
+			nearestOpenedAncestor = null;
+		}
+
+		
+		tokenEndIndex += text.length;
+		if (!nearestOpenedAncestor && !lineIsBlank){
+			nearestOpenedAncestor = getNearestOpenedAncestor(lastOpenedContainerNode, tokenStartIndex)
+		}
+
+		if (lineIsBlank){
+			if (!nearestOpenedAncestor)
+				nearestOpenedAncestor = lastOpenedContainerNode;
+			const containerNodeBeforeBlankLine = closeLeafNodeTerminatedByBlankLine(nearestOpenedAncestor, tokenStartIndex);
+			if (containerNodeBeforeBlankLine) {
+				nearestOpenedAncestor = containerNodeBeforeBlankLine
+				break;
+			}
+		}
+
+
+		let childrenLen = nearestOpenedAncestor.children.length
+
+		if (childrenLen > 0){
+			let lastOpenedChildNode = nearestOpenedAncestor.children[childrenLen-1]
+			if (lastOpenedChildNode.nodeName.startsWith("fenced code") && !lastOpenedChildNode.closed){
+				if ((tokenStartIndex - nearestOpenedAncestor.indentLevel) < 4 && lineEndsFencedCodeBlock(lastOpenedChildNode, textTokens, i)) {
+					lastOpenedChildNode.closed = true
+				}else{
+					continueFencedCodeBlockContent(textTokens, lastOpenedChildNode, nearestOpenedAncestor)
+				}
+				break;
+			}else if (lastOpenedChildNode.nodeName === "html block" && !lastOpenedChildNode.closed){
+				if (!lineIsBlank || !["html block type 6", "html block type 7"].includes(lastOpenedChildNode.infoString)) {
+					const content = joinText(textTokens, 0).slice(nearestOpenedAncestor.indentLevel)
+					if (htmlBlockEnded(lastOpenedChildNode.infoString, content)){
+						lastOpenedChildNode.closed = true
+					}
+					lastOpenedChildNode.textContent += content
+					break;
+				}
+			}
+		}
+
+		let potentialBlockType = null
+		let newLeafNodeCreated = false
+
+		if ((nearestOpenedAncestor?.indentLevel !== undefined && (tokenStartIndex - nearestOpenedAncestor.indentLevel) >= 4) || lineIsBlank){
+			const contentUpdated = updateIndentedCodeNodeContent(textTokens, i, nearestOpenedAncestor, lineIsBlank)
+			if (contentUpdated) {
+				break;
+			}
+
+			if (!lineIsBlank) {
+				const actualContentType = addIndentedCodeNode(textTokens, i, nearestOpenedAncestor)
+				if (actualContentType === "indented code block"){
+					newLeafNodeCreated = true
+				}else potentialBlockType = actualContentType;
+			}
+			
+		}else potentialBlockType = getLeafBlockType(textTokens, i);
+
+		if (!newLeafNodeCreated && potentialBlockType !== "plain text"){
+			const newNode = addNonParagraphLeafBlockNode(
+				potentialBlockType, nearestOpenedAncestor, textTokens, i, lastWhiteSpaceChunk, linkRefsMap, lineRepsThematicBreak(textTokens, i)
+			)
+			newLeafNodeCreated = true
+			if (!newNode){
+				potentialBlockType = "indeterminate"
+				newLeafNodeCreated = false
+			}
+			newLeafNodeCreated = Boolean(newNode)
+		}
+		
+		let containerType:string = null
+		if (!newLeafNodeCreated && potentialBlockType === "indeterminate")
+			containerType = getContainerBlockType(text)
+
+		if (containerType && containerType !== "blockquote"){
+			if (!markerRepsValidListItem(textTokens, i, containerType, nearestOpenedAncestor)) {
+				containerType = "plain text"
+			}
+		}
+
+		if (containerType === "blockquote") {
+			const childLen = nearestOpenedAncestor.children.length;
+			if (nearestOpenedAncestor.children.length > 0){
+
+				const lastChildNode = nearestOpenedAncestor.children[childLen-1]
+				if (lastChildNode.nodeName === "blockquote" && !lastChildNode.closed){
+					nearestOpenedAncestor = nearestOpenedAncestor.children[0] // why index 0?
+					// nearestOpenedAncestor.infoString = i.toString()
+					tokenStartIndex = 0;
+					tokenEndIndex = 0
+					nearestOpenedAncestor.indentLevel = 1;
+					
+					if (i<textTokens. length-1 && (/\s/).test(textTokens[i+1][0])) {
+						nearestOpenedAncestor.indentLevel += 1;
+					}
+					
+					if (!outerMostBlockQuoteNode)
+						outerMostBlockQuoteNode = nearestOpenedAncestor;
+					continue;
+				}
+			}
+
+			tokenStartIndex = 0;
+			tokenEndIndex = 0;
+
+			const newNode: HtmlNode = {
+				parentNode: nearestOpenedAncestor, nodeName: "blockquote",indentLevel: 1, closed: false, children: []/*, infoString: i.toString()*/
+			};
+			if (i<textTokens.length-1 && (/\s/).test(textTokens[i+1][0])) {
+				newNode.indentLevel += 1;
+			}
+
+			nearestOpenedAncestor.children.push(newNode)
+			nearestOpenedAncestor = newNode
+
+			if (!outerMostBlockQuoteNode)
+				outerMostBlockQuoteNode = nearestOpenedAncestor;
+			continue;
+		}else if (containerType && containerType !== "plain text") {
+			const newListItemNode = addNewListItemNodeToTree(nearestOpenedAncestor, containerType, textTokens[i])
+			if (i === textTokens.length-2) {
+				newListItemNode.indentLevel = tokenEndIndex + 2;
+			}else if (i < textTokens.length-2) {
+				const nextWhitespaceChunk = replaceTabsWithSpaces(textTokens[i+1], tokenEndIndex+1)
+				if (nextWhitespaceChunk.length < 5)
+					newListItemNode.indentLevel = tokenEndIndex + nextWhitespaceChunk.length + 1;
+			}
+			if (newListItemNode.indentLevel === -1) {
+				newListItemNode.indentLevel = tokenEndIndex + 2;
+			}
+			newListItemNode.infoString = lastWhiteSpaceChunk + text
+			nearestOpenedAncestor = newListItemNode
+			continue;
+		}
+
+		if (!newLeafNodeCreated && !lineIsBlank){
+			newLeafNodeCreated = addOrUpdateParagraphNode(textTokens, nearestOpenedAncestor, i)
+			if (!newLeafNodeCreated){ // paragraph continuation line
+				nearestOpenedAncestor = lastOpenedContainerNode
+				break;
+			}
+		}
+		if (newLeafNodeCreated){
+			if (nearestOpenedAncestor.nodeName === "li"){
+				let nearestRootLikeAncestor = getNearestRootlikeAncestor(nearestOpenedAncestor)
+				const potBlankNode = nearestRootLikeAncestor.children[nearestRootLikeAncestor.children.length-1]
+				if (potBlankNode.nodeName === "blank"){
+					const newNode = nearestOpenedAncestor.children.pop()
+					potBlankNode.parentNode = nearestOpenedAncestor
+					nearestOpenedAncestor.children.push(nearestRootLikeAncestor.children.pop(), newNode)
+				}
+			}
+			break;
+		}
+		lastWhiteSpaceChunk = ""
+	}
+
+	if (outerMostBlockQuoteNode) {
+		nearestOpenedAncestor = outerMostBlockQuoteNode.parentNode
+		outerMostBlockQuoteNode = null
+	}
+	
+	return nearestOpenedAncestor
+}
+
+
+function mergeWithPrevParagraphIfAny1(listItemNode: HtmlNode){
+	const listNode = listItemNode.parentNode
+	const listNodeParent = listNode.parentNode
+
+	for (let i=0; i<listNodeParent.children.length; i++) {
+		const childNode = listNodeParent.children[i]
+		if (childNode === listItemNode.parentNode && i !== 0){
+			if (listNodeParent.children[i-1].nodeName === "paragraph" && !listNodeParent.children[i-1].closed){
+				listNodeParent.children[i-1].textContent += listItemNode.infoString + '\n'
+				listItemNode.nodeName = "deleted"
+				// console.log(listNodeParent.children[i-1].textContent)
+				return listNodeParent
+			}else {
+				return listItemNode
+			}
+		}
+	}
+}
+
+
+function checkListNodeValidity(listNode: HtmlNode) {
+	for (let i=0; i<listNode.children.length; i++) {
+		if (listNode.children[i].nodeName == "li"){
+			return true
+		}
+	}
+	return false
+}
+
+function listIsLoose(listNode: HtmlNode) {
+	for (let i=0; i<listNode.children.length; i++) {
+		if (i !== 0 && i !== listNode.children.length-1 && listNode.children[i].nodeName === "blank") {
+			return true
+		}else if (listNode.children[i].nodeName === "li") {
+			const listItemNode = listNode.children[i]
+			for (let j=0; j<listItemNode.children.length-1; j++) {
+				if (j !== 0 && listItemNode.children[j].nodeName === "blank") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+
+function reprocessListItems(node: HtmlNode) {
+	if (node.children && node.children.length > 0) {
+		for (let i=0; i<node.children.length; i++) {
+			let childNode = node.children[i]
+			if (childNode.children && childNode.children.length > 0) {
+				reprocessListItems(childNode)
+			}else if (childNode.nodeName === "li" && (i === 0 || node.children[i-1].nodeName === "deleted")) {
+				mergeWithPrevParagraphIfAny1(childNode)
+			}else if (node.nodeName === "ol" || node.nodeName === "ul"){
+				break;
+			}
+		}
+		if (node.nodeName === "ol" || node.nodeName === "ul") {
+			const listIsValid = checkListNodeValidity(node)
+			if (!listIsValid){
+				node.nodeName = "deleted"
+			}else if (listIsLoose(node)){
+				node.tight = 'false'
+			}
+		}
+	}
+}
+
+export default function generateBlockNodesTree2(textStream: string, linkRefsMap: LinkRefDataMap, dangerousHtml: string[]) {
 	let i = 0;
 	let rootNode:HtmlNode = {parentNode: null as any, nodeName: "root", indentLevel: 0, closed: false, children: []};
 	let lastOpenedNode = rootNode;
+	const linkRefs = []
 
 	while (true) {
 		let lineTokens: string[] = [];
 		[lineTokens, i] = tokenizeLine(textStream, i);
 		i++;
-		lastOpenedNode = addBlockNodesToTree(lastOpenedNode, lineTokens)
+		lastOpenedNode = addBlockNodesToTree(lastOpenedNode, lineTokens, linkRefsMap)
 
-		if (i >= textStream.length-1)
+		if (i >= textStream.length-1){
+			reprocessListItems(rootNode)
 			return rootNode
+		}
 	}
 }
+

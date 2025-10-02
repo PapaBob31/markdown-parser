@@ -1,5 +1,5 @@
 import type {Node} from "./index"
-import { PUNCTUATIONS, escapeSpecialCharacters } from "./index"
+import { PUNCTUATIONS, escapeSpecialCharacters, parseCharRef } from "./index"
 const querystring = require('node:querystring')
 
 export interface LinkRefData {
@@ -88,6 +88,7 @@ export function getLabel(text: string, startIndex=0): [string, number] {
 		}else if (text[i] === '\\' && !contentRange) { // invalid escape character
 			return [null, -1]
 		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			linkLabel += text[i];
 			charIsEscaped = true
 		}else if (!contentRange && text[i] === '[') {
 			contentRange = true;
@@ -253,6 +254,8 @@ function getEnclosedText(startNode: Node, endNode: Node) {
 	let outputText = "";
 
 	while (currentNode !== endNode) {
+		if (currentNode.type === "md link html")
+			return null
 		outputText += currentNode.content;
 		currentNode = currentNode.next;
 	}
@@ -279,42 +282,75 @@ function getReferenceLinkData(labelStr: string, linkRefs: LinkRefDataMap): LinkA
 
 
 // Returns the link attributes of a shorcut, refernce or colapsed link as well as the index where the link ends
-function getReferenceLinks(linkText: string, textStream: string, startIndex: number, linkRefs: LinkRefDataMap):[LinkAttributes, number] {
+function getReferenceLinks(linkText: string, unParsedLinkText: string, textStream: string, startIndex: number, linkRefs: LinkRefDataMap):[LinkAttributes, number] {
 	let i = startIndex;
 	if (i === textStream.length-1 || textStream[i+1] !== '[') {
-		return [getReferenceLinkData(linkText, linkRefs), i]; // shortcut links
+		return [getReferenceLinkData(unParsedLinkText, linkRefs), i]; // shortcut links
 	}
-	
+	// console.log("bro")
 	let [labelText, labelTextEndIndex] = getLabel(textStream, i+1);
-	if (labelText === null) {
-		return [{destination: null, title: null}, i];
+	let data: {destination: string, title: string} = {destination: null, title: null};
+
+	if (labelText !== null) {
+		if ((/\S/).test(labelText)) { // full reference links
+			data = getReferenceLinkData(labelText, linkRefs)
+		}else { // collapsed reference links
+			data = getReferenceLinkData(unParsedLinkText, linkRefs)
+		}
+		
+		if (data.destination)
+			return [data, labelTextEndIndex]
+	}else {
+		data = getReferenceLinkData(unParsedLinkText, linkRefs)// shortcut links
 	}
-	let data = getReferenceLinkData(labelText, linkRefs); // reference links
-	if (!data.destination) { // shortcut links or collapsed refernece links
-		data = getReferenceLinkData(linkText, linkRefs)
+	return [data, startIndex];
+}
+
+
+function getEnclosedPlainText(startNode: Node, endNode: Node) {
+	let currentNode = startNode.next;
+	let outputText = "";
+
+	while (currentNode !== endNode) {
+		if (currentNode.type === "text content")
+			outputText += currentNode.content;
+		else if (currentNode.type === "md img html") {
+			const match = currentNode.content.match(/alt="([^]*)"/)
+			outputText += match[1];
+		}
+		currentNode = currentNode.next;
 	}
-	return [data, labelTextEndIndex];
+	return outputText;
 }
 
 
 // Transforms openingNode and closingNode to either 'a' or 'img' html tags as appropriate
-function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: any): Node {
-	let linkAttributes:LinkAttributes;
-	let linkText = getEnclosedText(openingNode, closingNode)
+function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: any) {
 	let linkType = openingNode.content === "![" ? "img" : "link";
-	if (linkType === "link" && !linkText) {
-		return null;
-	}
+	let linkText = ""
 
+	if (linkType === "img") {
+		linkText = getEnclosedPlainText(openingNode, closingNode)
+	}else linkText = getEnclosedText(openingNode, closingNode)
+
+	if (attributes.title)
+		attributes.title = escapeSpecialCharacters(parseCharRef(attributes.title))
+
+	// console.log("HERE", attributes.title)
+	attributes.destination = escapeSpecialCharacters(encodeURI(parseCharRef(decodeURI(attributes.destination)))); // what in the hell??
 	if (linkType === "link") {
-		openingNode.content = `<a href="${encodeURI(attributes.destination)}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
+		openingNode.content = `<a href="${attributes.destination}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
 		closingNode.content = `</a>`
 	}else {
-		openingNode.content = `<img src="${encodeURI(attributes.destination)}" alt="${linkText}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
+		openingNode.content = `<img src="${attributes.destination}" alt="${linkText}"${attributes.title ? ' title="'+attributes.title+'"' : ""} />`;
 		openingNode.next = null;
 	}
-	openingNode.type = "raw html"
-	closingNode.type = "raw html"
+	if (linkType === "img") {
+		openingNode.type = "md img html"
+	}else {
+		openingNode.type = "md link html"
+		closingNode.type = "md link html"
+	}
 }
 
 // Changes all "link marker start" nodes before startNode parameter to "text content" nodes
@@ -322,7 +358,7 @@ function closeAllOpenersUpstream(startNode: Node) {
 	let currentNode = startNode
 
 	while (currentNode) {
-		if (currentNode.type === "link marker start") {
+		if (currentNode.type === "link marker start" && currentNode.content !== '![') {
 			currentNode.type = "text content"
 		}
 		currentNode = currentNode.prev;
@@ -330,7 +366,7 @@ function closeAllOpenersUpstream(startNode: Node) {
 }
 
 // Returns a string with all whitespace and all non-ascii characters escaped
-function urlEncode(text: string){
+function urlEncode(text: string){ // why the fuck?  don't tell me I tried to rewrite encodeURIComponent
 	let output = "";
 	for (let char of text){
 		if ((/\s/).test(char) || !(/[\x00-\x7F]/).test(char)){
@@ -340,47 +376,280 @@ function urlEncode(text: string){
 	return output
 }
 
+function currentLinkComponentHasEnded(startDelimiter: string,  char: string){
+	const startEndDelimiterMapping: {[key: string]: string} = {"(": ")", "<": ">", "\"":"\"", "'": "'"};
+	return startEndDelimiterMapping[startDelimiter] === char || (!startDelimiter && (/\s/).test(char))
+}
+
+
+function getLinkComponents(text: string, startIndex: number) {
+	let linkComponents: (string|null)[] = [null, null]
+	let charIsEscaped = false
+	let i = startIndex;
+	let compIndex = 0;
+	let compDelimiter = ""
+	let unbalancedParen = 0
+	const titleStartDelimiters = "(\"'"
+
+	while (i < text.length) {
+		let char = text[i]
+	
+		if (char === ')' && !compDelimiter && !unbalancedParen && !charIsEscaped){
+			if (compIndex === 0 && linkComponents[0] === null)
+				linkComponents[0] = ""
+			return [linkComponents, i];
+		}
+		if (compIndex < 2 && linkComponents[compIndex] === null) {
+			if (compIndex == 0) {
+				if (char === '<'){
+					linkComponents[compIndex] = ""
+					compDelimiter = char
+				}else if ((/\S/).test(char)){
+					linkComponents[compIndex] = ""
+				}
+			}else if ("'\"(".includes(char)) {
+				compDelimiter = char
+				linkComponents[compIndex] = ""
+			}else if ((/\S/).test(char)){
+				return [[null, null], -1]
+			}
+			if (compDelimiter || linkComponents[compIndex] === null) {
+				i++;
+				continue;
+			}
+		}else if (!charIsEscaped) {
+			if (currentLinkComponentHasEnded(compDelimiter, char)) {
+				compIndex++;
+				compDelimiter = "";
+			}else if ((compDelimiter === char) || (compDelimiter === '<' && char === '\n')){
+				// return [[null, null], i]
+				return  [[null, null], -1]
+			}else if (compIndex === 0 && !compDelimiter) {
+				if (char === ')' && compDelimiter != "<"){ // no need for this second check na abi?
+					unbalancedParen--
+				}else if (char === '(' && compDelimiter != "<"){ // no need for this second check na abi?
+					unbalancedParen++
+				}
+			}else if (compIndex === 2 && !(/\s/).test(char)) {
+				return [[null, null], -1]
+			}
+		}
+
+		if (char === "\\" && !charIsEscaped && (i < text.length-1) && PUNCTUATIONS.includes(text[i+1])){
+			charIsEscaped = true
+			i++;
+			continue;
+		}
+
+		if (compIndex < 2 && linkComponents[compIndex] !== null){
+			charIsEscaped = false
+			linkComponents[compIndex] += char;
+		}
+
+		i++;
+	}
+	// console.log(unbalancedParen, linkComponents)
+	return [[null, null], -1]
+}
+
+// 387 - 463, 347-400
+
+export function extractLinkRefsData(text: string, linkRefsMap: LinkRefDataMap) {
+	// console.log("shess", text)
+	let i = 0;
+	let plainText = ""
+	let startIndex = i;
+	let linksData = []
+
+	while (i<text.length) {
+		startIndex = i
+
+		let data = getLinkReferenceDefData(text, startIndex) as [string[], number]
+		let components = data[0];
+		// console.log(components)
+		i = data[1]
+		// console.log("OKAY", text.length, i)
+
+		if (components[0] !== null && components[0].length <= 999 && (/\S/).test(components[0])) {
+			linksData.push(components)
+			i++;
+		}else {
+			// plainText += text.slice(startIndex, i+1);
+			// i++;
+			plainText += text.slice(startIndex, text.length);
+			break;
+		}
+	}
+
+	for (let data of linksData) {
+		const basicData = {label: data[0], destination: data[1], title: ""}
+		if (data[2] !== null) {
+			basicData.title = data[2]
+		}
+		const normalizedLabel = basicData.label.toLowerCase().replace(/\s+/, ' ').trim()
+		if (!linkRefsMap[normalizedLabel])
+			linkRefsMap[normalizedLabel] = basicData
+	}
+	// console.log("<<shess>>", text)
+	return plainText;
+
+}
+
+
+function getEndOfLine(text: string, startIndex: number) {
+	if (startIndex >= text.length-1) {
+		return startIndex;	
+	}
+	for (let i=startIndex; i<text.length; i++) {
+		if (text[i] === '\n') {
+			return i
+		}
+		if (i === text.length-1)
+			return i;
+	}
+}
+
+
+function getLinkReferenceDefData(text: string, startIndex: number) {
+	let i = startIndex;
+	let components:(string|null)[] = [null, null, null]
+	let compIndex = 0;
+	let compDelimiter = ""
+	let unbalancedParen = 0;
+	let charIsEscaped = false
+	let result: [string[], number] = [[null, null, null], -1]
+
+	while (i < text.length) {
+		const char = text[i];
+
+		if (compIndex === 3 || (compIndex < 3 && components[compIndex] === null)) {
+			if ((compIndex === 0 && char === '[') || (compIndex === 1 && char === '<') || (compIndex === 2 && "'\"(".includes(char))){
+				components[compIndex] = ""
+				compDelimiter = char
+			}else if (compIndex === 1 && (/\S/).test(char)) {
+				components[compIndex] = ""
+			}else if ((/\s/).test(char)){
+				if (char === '\n' && compIndex === 2){
+					result = [[...components], i]
+				}else if (char === '\n' && compIndex === 3) {
+					return [components, i]
+				}
+			}/*else if (compIndex === 2 && lastNewLineIndex > -1) {
+				return [components, i-1]
+			}*/else {
+				if (result[1] > -1)
+					return result
+				return [[null, null, null], getEndOfLine(text, i)]
+			}
+			if (compDelimiter){
+				i++;
+				continue;
+			}
+		}else if (compIndex < 3 && !charIsEscaped) {
+			if (currentLinkComponentHasEnded(compDelimiter, char)) {
+				if (char == '>' && i < text.length-2 && !(/\s/).test(text[i+1]))
+					return [[null, null, null], getEndOfLine(text, i)]
+				compIndex++;
+				compDelimiter = "";
+				if (char === '\n' && compIndex === 2){
+					result = [[...components], i]
+					// lastNewLineIndex = i;
+				}
+			}else if (compIndex === 0 && char === ']') {
+				if (text[i+1] === ':') {
+					compIndex++;
+					compDelimiter = "";
+					i++;
+				}else {
+					return [[null, null, null], getEndOfLine(text, i)]
+				}
+			}else if ((compDelimiter === char) || (compDelimiter === '<' && char === '\n')){
+				return [[null, null, null], getEndOfLine(text, i)]
+			}else if (compIndex === 1 && !compDelimiter) {
+				if (char === ')'){
+					unbalancedParen--
+				}else if (char === '('){
+					unbalancedParen++
+				}
+			}
+		}
+
+		if (char === "\\" && !charIsEscaped && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])){
+			if (compIndex === 0)
+				components[compIndex] += char;
+
+			charIsEscaped = true
+			i++;
+			continue;
+		}
+
+		if (compIndex < 3 && components[compIndex] !== null){
+			charIsEscaped = false
+			components[compIndex] += char;
+		}
+
+		i++;
+	}
+
+	if (compIndex === 3 || (compIndex == 2 && (components[compIndex] === null) || (compIndex == 1 && compDelimiter === "" && components[compIndex] !== null))) {
+		return [components, i]
+	}
+	return [[null, null, null], getEndOfLine(text, i)]
+}
+
+
 /** Generates nodes containing html link tags from a textStream and adds the nodes into
  * an already exisiting linked list. Parsing starts from a specified index in the textStream */
 export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs: LinkRefDataMap, startIndex: number) : [Node, number] {
-	let linkAttributes = {destination: "", title: ""}
+	let linkAttributes: {destination: string, title: string} = {destination: null, title: null}
 	const opener = getOpener(closer)
 	if (!opener)
 		return [null, -1];
+	
+	let linkText = ""
+	if (opener.content === '[')
+		linkText = getEnclosedText(opener, closer);
+	else
+		linkText = getEnclosedPlainText(opener, closer);
 
-	let linkText = getEnclosedText(opener, closer); 
+	if (linkText === null) {
+		opener.type = "text content"
+		closer.type = "text content"
+		return [null, -1];
+	}
+	closer.charIndex = startIndex
+
 	let i = startIndex;
 	if (i < textStream.length-2 && textStream[i+1] === "(") {
 		i+=2; // Destination parsing should start immediately after the '(' character
-		[linkAttributes.destination, i] = getDestination(textStream, i, true);
-		if (linkAttributes.destination && i !== textStream.length-1) {
-			let titleEnd:number;
-			[linkAttributes.title, titleEnd] = getTitle(textStream, i+1);
-			if (linkAttributes.title) {
-				i = titleEnd;
-			}
-		}
+		// console.log("AAAAH", textStream[i], textStream[startIndex])
+		let [components, endIndex] = getLinkComponents(textStream, i) as [string[], number]
+		// console.log(components)
+		linkAttributes.destination = components[0]
+		linkAttributes.title = components[1]
+		if (i > -1)
+			i = endIndex;
 	}
 
-	if (linkAttributes.destination) {
-		let end = i < textStream.length-1 && textStream.slice(i+1).match(/^\s*\)/);
-		if (!end){
-			return [null, -1];
-		}
-		i += end[0].length;
-	}else {
-		[linkAttributes, i] = getReferenceLinks(linkText, textStream, i, linkRefs);
+	if (linkAttributes.destination === null) {
+		const unParsedLinkText = textStream.slice(opener.charIndex+1, closer.charIndex);
+		[linkAttributes, i] = getReferenceLinks(linkText, unParsedLinkText, textStream, i, linkRefs);		
 	}
-	if (!linkAttributes.destination) {
+	
+	if (linkAttributes.destination === null) {
 		opener.type = "text content"
 		closer.type = "text content"
 		return [null, -1];
 	}else {
-		linkAttributes.destination = urlEncode(linkAttributes.destination)
-		linkAttributes.title = linkAttributes.title && escapeSpecialCharacters(linkAttributes.title)
-		closeAllOpenersUpstream(opener.prev) // closes all unclosed markers before 'opener' node since links can't be nested
+		// linkAttributes.destination = urlEncode(linkAttributes.destination)
+		linkAttributes.title = linkAttributes.title && parseCharRef(linkAttributes.title)
+		// if (opener.content === '[')
+		// 	closeAllOpenersUpstream(opener.prev) // closes all unclosed markers before 'opener' node since links can't be nested
+
 		transformToLinkHtml(opener, closer, linkAttributes)
-		return [opener.content === "![" ? opener : closer, i]; // `i` is the index where the link ends in the string
+		if (opener.type === "md img html")
+			return [opener, i]; // `i` is the index where the link ends in the string
+		return [closer, i]
 	}	
 }
 

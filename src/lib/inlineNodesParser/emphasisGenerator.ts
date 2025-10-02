@@ -1,6 +1,16 @@
 import type { Node } from "./index"
 import { PUNCTUATIONS } from "./index"
 
+/*
+left flanking delimiter run
+****[non whitespace|punctuation]
+[punctuation|whitespace]****[punctuation]
+
+right flanking delimiter run
+[non whitespace|punctuation]****
+[punctuation]****[punctuation|whitespace]
+*/
+
 /** Set the type attribute of a node whose content is a potential delimiter run as right flanking or left flanking according to the GFM spec
  * @param {currentNode} the node whose content attribute contains the potential delimiter run substring
  * @param {textStream} is the string the delimiter run substring was extracted from
@@ -12,8 +22,9 @@ export function setAsLeftOrRightFlanking(currentNode: Node, textStream: string, 
 	const prevChar = currentNode.prev ? currentNode.prev.content[currentNode.prev.content.length-1] : ' '; 
 	const nextChar = charIndex < textStream.length-1 ? textStream[charIndex+1] : ' '; // character after the last character in the potential delimiter run
 
-	const nextCharIsPunc = PUNCTUATIONS.includes(nextChar);
-	const prevCharIsPunc = PUNCTUATIONS.includes(prevChar);
+	// Todo: Implement this: Unicode symbols count as punctuation, too
+	const nextCharIsPunc = PUNCTUATIONS.includes(nextChar) || "$£€".includes(nextChar); // 
+	const prevCharIsPunc = PUNCTUATIONS.includes(prevChar) || "$£€".includes(prevChar);
 
 	if (nextChar !== currentChar) { // We have a complete delimiter run
 
@@ -102,17 +113,41 @@ function getNearestEmphasisOpener(node: Node){
 	let currentNode = node.prev;
 	let uselessNodes = [];
 	const specialTypes = ["lf delimiter run", "rf delimiter run", "bf delimiter run"];
+	const unMatchedClosingTags:string[] = []
 	while (true) {
 		if (!currentNode){ // all the nodes that need to be checked have been checked
 			return null;
 		}
 
-		if (!specialTypes.includes(currentNode.type)) { // can't possibly open an emphasis
+		if (currentNode.type === "raw html" || currentNode.type === "md link html") {
+			let closingTagPattern = currentNode.content.match(/^<\/([^\s>]+)\s?>$/)
+			if (closingTagPattern){
+				unMatchedClosingTags.push(closingTagPattern[1].toLowerCase())
+				currentNode = currentNode.prev;
+				continue;
+			}
+			let openingTagPattern = currentNode.content.match(/^<([^\s>]+)\s?.*>$/)
+			if (openingTagPattern){
+				// console.log(unMatchedClosingTags, openingTagPattern[1])
+				if (unMatchedClosingTags.pop() !== openingTagPattern[1].toLowerCase()) {
+					// console.log("yeet")
+					return null
+				}
+				currentNode = currentNode.prev;
+				continue;
+			}else {
+				let voidTagPattern = currentNode.content.match(/^<[^\s+>]\s*\/>$/)
+				if (!voidTagPattern){
+					// console.log("there")
+					return null
+				}
+			}
+		}else if (!specialTypes.includes(currentNode.type)) { // can't possibly open an emphasis
 			currentNode = currentNode.prev;
-			continue;
+			continue; // is this even neccessary
 		}else if (specialBfCase(node, currentNode) || !canOpenEmphasis(currentNode) || node.content[0] !== currentNode.content[0]) {
 			uselessNodes.push(currentNode); // they are left or right flanking but can't open an emphasis in this context
-		}else {
+		}else if (unMatchedClosingTags.length === 0) {
 			// prevents delimiter runs already embedded inside emphasis from being parsed as emphasis later
 			uselessNodes.forEach(node => {node.type = "text content"});
 			return currentNode;
@@ -155,7 +190,7 @@ function canOpenEmphasis(node: Node) {
 	return false;
 }
 
-// Returns a boolean indiacating if the node parameter's content can close emphasis
+// Returns a boolean indicating if the node parameter's content can close emphasis
 function canCloseEmphasis(node: Node) {
 	if (node.type === "rf delimiter run") {
 		return true;
@@ -178,6 +213,7 @@ export default function processEmphasisNodes(head: Node) {
 	let currentNode = head;
 	let openers = [];
 	while (true) {
+		// console.log(currentNode)
 		if (canCloseEmphasis(currentNode)) { 
 			const opener = getNearestEmphasisOpener(currentNode);
 			if (opener) {
@@ -185,8 +221,20 @@ export default function processEmphasisNodes(head: Node) {
 			}else if (currentNode.type !== "bf delimiter run"){ // currentNode can't later serve as opener for another closing emphasis node
 				currentNode.type = "text content";
 			}
+			// console.log(1, opener.type, opener.content)
+			if (!opener || currentNode.type === "raw html" || currentNode.type === "text content") {
+				if (!currentNode.next) break; // end of linked list
+				currentNode = currentNode.next;
+			}
+		}else {
+			if (!currentNode.next) break; // end of linked list
+			currentNode = currentNode.next;
 		}
-		if (!currentNode.next) break; // end of linked list
-		currentNode = currentNode.next;
+		// console.log(2, currentNode.type, currentNode.content)
+		// if (currentNode.type === "raw html" || currentNode.type === "text content") {
+		// 	if (!currentNode.next) break; // end of linked list
+		// 	currentNode = currentNode.next;
+		// }
+		
 	}
 }
