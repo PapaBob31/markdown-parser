@@ -7,11 +7,11 @@ export interface HtmlNode {
 	textContent?: string;
 	closed: boolean;
 	children: HtmlNode[];
-	indentLevel?: number; // used to check if a node is nested under another node
-	fenceLength?: number; // stores the length of fenced code block boundary
-	infoString?: string; // stores node specific atrributes i.e type of marker a list is using
-	startNo?: string; // the start attribute of ordered lists
-	tight?: string; // indicates if a List is loose or tight according to the GFM spec
+	indentLevel?: number; // Index where content must at least start from before it can count as this node's child. particularly useful for list item nodes
+	fenceLength?: number; // Used by fenced code block nodes. Stores the length of fenced code block boundary
+	infoString?: string; // stores node specific atrributes e.g type of marker a list is using, html block type
+	startNo?: string; // the start attribute of ordered list nodes
+	tight?: string; // indicates if a List is loose or tight according to the Common Mark spec
 }
 
 export interface LinkRefData {
