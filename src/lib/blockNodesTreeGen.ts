@@ -5,7 +5,7 @@ import { getHtmlTagEndPos } from "./inlineNodesParser"
 /**
  * A node of the tree data structure generated when parsing the text
  * @typedef {Object} HtmlNode
- * @property {HtmlNode} parentNode - parent node of thi node in the tree
+ * @property {HtmlNode} parentNode - parent node of this node in the tree
  * @property {string} nodeName - name of the html the string represents
  * @property {string} textContent - plain text content of the node
  * @property {boolean} closed - indicates if a child nodes or textcontent can still be added to a node
@@ -14,7 +14,7 @@ import { getHtmlTagEndPos } from "./inlineNodesParser"
  * @property {?number} fenceLength - Used by fenced code block nodes. The length of fenced code block boundary
  * @property {?string} infoString - Node specific atrributes e.g type of marker a list is using, html block type
  * @property {?string} startNo - Start attribute value of ordered list nodes
- * @property {?string} tight - Indicates if a List is loose or tight according to the Common Mark spec
+ * @property {?boolean} tight - Indicates if a List is loose or tight according to the Common Mark spec
  */
 
 
@@ -241,7 +241,7 @@ function createListNode(listNodeParent: HtmlNode, markerDetails: string, marker:
 		nodeName: "",
 		closed: false, 
 		children: [],
-		tight: "true",
+		tight: true,
 		indentLevel: listNodeParent.indentLevel,
 		startNo
 	}
@@ -521,8 +521,8 @@ type valid_marker_type = "list item +" | "list item -" | "list item *" | "list i
 /** Determines if a list marker can actually start a list item acording to the common mark spec
  * @param {string[]} textTokens - An array of strings generated from the same line of text the list marker was found
  * @param {number} markerIndex - The index of the list marker text in the texTokens parameter
- * @type {("list item +"|"list item -"|"list item *"| "list item n."|"list item n)")}
- * @param {string} markerType - indicates if the list marker reps an ordered list item or an unordered list item
+ * @param {("list item +"|"list item -"|"list item *"| "list item n."|"list item n)")} markerType - indicates if the 
+ * list marker represents an ordered list item or an unordered list item
  * @param {HtmlNode} listItemAncestor - ancestor node of the list item that's about to be created
  * @returns {HtmlNode} - The closest blockquote ancestor or the actual root node itself if a leaf node gets closed or null if no leaf node gets closed */
 function markerRepsValidListItem(textTokens: string[], markerIndex: number, markerType: valid_marker_type, listItemAncestor: HtmlNode) {
@@ -1046,7 +1046,7 @@ function listIsLoose(listNode: HtmlNode) {
  * @param {HtmlNode} node - The node where traversal is to start from */
 function setLooseListNodesAsLoose(node: HtmlNode) {
 	if ((node.nodeName === "ol" || node.nodeName === "ul") && listIsLoose(node)) {
-		node.tight = 'false'
+		node.tight = false
 	}
 
 	if (node.children && node.children.length > 0) {

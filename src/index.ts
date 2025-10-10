@@ -11,7 +11,7 @@ export interface HtmlNode {
 	fenceLength?: number; // Used by fenced code block nodes. Stores the length of fenced code block boundary
 	infoString?: string; // stores node specific atrributes e.g type of marker a list is using, html block type
 	startNo?: string; // the start attribute of ordered list nodes
-	tight?: string; // indicates if a List is loose or tight according to the Common Mark spec
+	tight?: boolean; // indicates if a List is loose or tight according to the Common Mark spec
 }
 
 export interface LinkRefData {
@@ -34,6 +34,6 @@ export default function parse(textStream: string, escapeDangerousHtml: boolean =
 	}
 	const root = generateBlockNodesTree(textStream, linkRefsMap, dangerousHtml);
 	updateLinkRefsMap(root, linkRefsMap);
-	const generatedHtml = generateHtmlFromTree(root, 0, linkRefsMap, dangerousHtml)
+	const generatedHtml = generateHtmlFromTree(root, linkRefsMap, dangerousHtml)
 	return generatedHtml;
 }

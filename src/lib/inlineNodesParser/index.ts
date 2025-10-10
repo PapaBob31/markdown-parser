@@ -3,17 +3,18 @@ import type { LinkRefData, LinkRefDataMap } from "./linkGenerator"
 import { generateLinkHtmlNode } from "./linkGenerator"
 const validEntityRefs = require('../entities.json')
 
-export const PUNCTUATIONS = "<>;,.()[]{}!`~+-_!=*&^%$#@\\/\"':?~|"; // is this all the possible punctuations?
+export const PUNCTUATIONS = "<>;,.()[]{}!`~+-_!=*&^%$#@\\/\"':?~|";
 
 export interface Node {
 	content: string;
 	type: string;
-	closed: boolean;
 	next: Node|null;
 	prev: Node|null;
 	charIndex?: number;
 }
 
+/** Replaces special characters in a string with their html entities
+ * @returns {string} - the new string */
 export function escapeSpecialCharacters(text: string) {
 	let i=0;
 	let escapedText = ""
@@ -29,31 +30,11 @@ export function escapeSpecialCharacters(text: string) {
 	return escapedText
 }
 
-// validates an array containing the parts of an html tag in order according to the html spec
-function isValidHtmlTag(components: string[]) {
-	let prevComponentType = "";
-	if ((/^<\w+$/).test(components[0])) {
-		prevComponentType = "html tag"
-	}else {
-		return false
-	}
-
-	for (let i=1; i<components.length; i++) {
-		if (prevComponentType === "attr name" && components[i] === '=') {
-			prevComponentType = "value assignment"
-		}else if (["attr name", "html tag"].includes(prevComponentType) && !(/['"<>=/]/).test(components[i])) {
-			prevComponentType = "attr name"
-		}else if (prevComponentType === "value assignment" && (/(?:^'.+'$)|(?:^".+"$)|(?:^[^'`"<>=]+$)/).test(components[i])) {
-			prevComponentType = "value"
-		}else if (prevComponentType === "value" && !(/['"<>=/]/).test(components[i])) {
-			prevComponentType = "attr name"
-		}else if (i !== components.length-1 || !['>', '/>'].includes(components[i])){
-			return false
-		}
-	}
-	return true
-}
-
+/** Gets the index where a '>' character ends a Html closing tag
+ * @param {number} startIndex - Index where the closing tag starts in a string
+ * @param {string} str - String containing the closing tag
+ * @param {string[]} forbiddenTagNames - array of strings containing tag names that would be considered dangerous html 
+ * @returns {number} - The index where the closing tag ends or -1 if it doesn't */
 function getHtmlClosingTagEndPos(startIndex: number, str: string, forbiddenTagNames: string[]) {
 	let closingTagMatch = str.slice(startIndex).match(/^<\/[a-zA-z-][a-zA-Z0-9-]*\s*>/);
 
@@ -64,6 +45,14 @@ function getHtmlClosingTagEndPos(startIndex: number, str: string, forbiddenTagNa
 
 }
 
+
+/** Determines if a character in a string containing an html opening tag will end the tag or not
+ * @param {string} partBeingProcessed - string representing the part of the tag where the character is found. Must be 'tag name', 'attr name', 'unquoted val' or 'quoted val'
+ * @param {string} text - String containing the opening tag
+ * @param {number} charIndex - Index of the character that's to be checked
+ * @param {boolean} contentEnded - Indicates if we are beyond the end of the content of `partBeingProcessed` while processing
+ * @param {string[]} forbiddenTagNames - array of strings containing tag names that would be considered dangerous html 
+ * @returns {boolean} - true if the character ends the tag, false if not*/
 function charEndsTag(partBeingProcessed: string, text: string, charIndex: number, contentEnded: boolean){
 	const whitespaceDelimitedParts = ["unquoted val", "tag name", "attr name"];
 	let charCanEndTag = false
@@ -81,16 +70,21 @@ function charEndsTag(partBeingProcessed: string, text: string, charIndex: number
 	return false
 }
 
+/** Gets the index where a '>' character ends a Html opening tag
+ * @param {number} startIndex - Index where the opening tag starts in a string
+ * @param {string} str - String containing the opening tag
+ * @param {string[]} forbiddenTagNames - array of strings containing tag names that would be considered dangerous html 
+ * @returns {number} - The index where the closing tag ends or -1 if it doesn't */
 export function getHtmlOpeningTagEndPos(startIndex: number, str: string, forbiddenTagNames: string[]){
 	let partBeingProcessed = str[startIndex] // this should be the '<' char
 	let contentEnded = false
-	let pbpDelimiter = str[startIndex] // this should be the '<' char
+	let pbpDelimiter = str[startIndex] // partBeingProcessed delimiter. This should be the '<' char
 	let tagName = ""
 	if (partBeingProcessed !== '<')
 		return -1
 
 	for (let i=startIndex+1; i<str.length; i++) {
-		if (charEndsTag(partBeingProcessed, str, i, contentEnded)) { // implement '/>' later
+		if (charEndsTag(partBeingProcessed, str, i, contentEnded)) {
 			if (str[i] === '/')
 				return i+1
 			return i;
@@ -148,35 +142,42 @@ export function getHtmlOpeningTagEndPos(startIndex: number, str: string, forbidd
 	return -1
 }
 
+/** Gets the index where a '>' character ends unconventional Html tags namely comments, processing instructions, 
+ * declarations and CDATA sections. These tags are parsed according to the commonmark spec
+ * @param {number} startIndex - Index where the closing tag starts in a string
+ * @param {string} text - String containing the closing tag
+ * @returns {number} - The index where the closing tag ends or -1 if it doesn't */
 function getOtherRawHtmlEndPosition(startIndex: number, text: string) {
-	const potHtmlPart = text.slice(startIndex);
+	const potHtmlPart = text.slice(startIndex); // potential Html part
 	let htmlPatterns = (potHtmlPart.match(/^(<!(?:-{2,3}>))/) || potHtmlPart.match(/^(<!--)(?!(?:>|->))[^]*(?:-->)/) || 
 		 potHtmlPart.match(/^(<)!\[CDATA\[[^]+]]>/) || potHtmlPart.match(/^(<)([^<>]+)>/));
 
 	if (!htmlPatterns) {
 		return -1
-	}/*else if (dangerousHtmlTags.includes(htmlPatterns[1].toLowerCase())) { //abcde
-		return null
-	}*/
+	}
 	if (htmlPatterns[1] === "<!--" || htmlPatterns[1] === "<!-->" || htmlPatterns[1] === "<!--->") {
 		return startIndex + htmlPatterns[0].length - 1
 	}else {
-		if (htmlPatterns[1] === "<" && htmlPatterns[0].slice(1, 9) === "![CDATA[" && htmlPatterns[0].slice(htmlPatterns[0].length-3) === "]]>") { // 
+		if (htmlPatterns[1] === "<" && htmlPatterns[0].slice(1, 9) === "![CDATA[" && htmlPatterns[0].slice(htmlPatterns[0].length-3) === "]]>") { // CDATA section
 			return startIndex + htmlPatterns[0].length - 1
-		}else if (htmlPatterns[1] === "<" && htmlPatterns[2][0] === "?") { // ?>
+		}else if (htmlPatterns[1] === "<" && htmlPatterns[2][0] === "?") { // processing instructions
 			if (htmlPatterns[0].length > 3 && htmlPatterns[0].slice(htmlPatterns[0].length-2) === "?>")
 				return startIndex + htmlPatterns[0].length - 1
 			else
 				return -1 
-		}else if (htmlPatterns[1] === "<" && (/![a-zA-Z]/).test(htmlPatterns[2].slice(0,2))) { // >
+		}else if (htmlPatterns[1] === "<" && (/![a-zA-Z]/).test(htmlPatterns[2].slice(0,2))) { // declarartiom
 			return startIndex + htmlPatterns[0].length - 1
 		}else return -1
 	}
 }
 
-// Validates an html tag and return it's tag end position
+
+/** Gets the index where a '>' character ends unconventional Html tags namely comments, processing instructions, 
+ * declarations and CDATA sections. All these tags are parsed according to the commonmark spec
+ * @param {number} startIndex - Index where the closing tag starts in a string
+ * @param {string} text - String containing the closing tag
+ * @returns {number} - The index where the closing tag ends or -1 if it doesn't */
 export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNames: string[]) {
-	// open tag, a closing tag, an HTML comment, a processing instruction, a declaration, or a CDATA section.
 	let tagEndPos = getHtmlClosingTagEndPos(startIndex, str, forbiddenTagNames)
 	if (tagEndPos > -1)
 		return tagEndPos
@@ -185,15 +186,17 @@ export function getHtmlTagEndPos(startIndex: number, str: string, forbiddenTagNa
 	if (tagEndPos > -1)
 		return tagEndPos
 	
-	tagEndPos = getOtherRawHtmlEndPosition(startIndex, str)
+	tagEndPos = getOtherRawHtmlEndPosition(startIndex, str) // HTML comment, a processing instruction, a declaration, or a CDATA section.
 	if (tagEndPos > -1)
 		return tagEndPos
 	return tagEndPos
 }
 
-/** Generates HTML code element from textStream parameter if it's content conforms to the GFM Code span spec
- * It returns An array of 2 elements where the generated html is the first element and the second element is
- * the index where the codeSpan ends if valid or just where the potential starting delimiter ends if not */
+/** Generates HTML code element from textStream parameter if it's content conforms to the CommonMark Code span spec
+ * @param {number} startIndex - The index where the code span delimiter starts
+ * @param {string} textStream - The string containing the code span
+ * @returns {(string|number)[]} - An array of 2 elements where the generated html is the first element and the second element is
+ * 								the index where the codeSpan ends if valid or just where the potential starting delimiter ends if not */
 function processPossibleCodeSpan(startIndex: number, textStream: string): [string, number] {
 	let startDelimiter = "";
 	let backTickBuffer = "";
@@ -227,46 +230,63 @@ function processPossibleCodeSpan(startIndex: number, textStream: string): [strin
 	}
 
 	if (codeSpanEnd === -1) { // no closing backtickString delimiter was found
-		return ["", startIndex+startDelimiter.length-1]; // - 1 cause startDelimiter's first index is equivalent to startIndex
+		return ["", startIndex+startDelimiter.length-1]; // - 1 cause startDelimiter's first character index is equivalent to startIndex
 	}
 
 	let contentStartIndex = startIndex+startDelimiter.length;
 	let codeContent = textStream.slice(contentStartIndex, codeSpanEnd-startDelimiter.length+1);
 	codeContent = codeContent.replaceAll(/\n|(?:\r\n)/g, ' ');
-	if ((/\S/).test(codeContent) && codeContent[0] === ' ' && codeContent[codeContent.length-1] === ' ') { // codeContent has valid leading and trailing spaces
+	if ((/\S/).test(codeContent) && codeContent[0] === ' ' && codeContent[codeContent.length-1] === ' ') { // codeContent has leading and trailing spaces
 		codeContent = codeContent.slice(1, codeContent.length-1);
 	}
 	return [`<code>${escapeSpecialCharacters(codeContent)}</code>`, codeSpanEnd];
 }
 
-// Adds a new node to or updates an existing Node inside the 
-// Linked List containing the special markdown characters and other text as nodes
+
+
+/** A node of the Linked List generated when parsing inline nodes when parsing the text
+ * @typedef {Object} Node
+ * @property {string} nodeType - string representing the type of node
+ * @property {string} content - plain text content of the node
+ * @property {null|Node} next - The next node in the linked list or null if this is the list's tail
+ * @property {null|Node} prev - The previous node in the linked list or null if this is the list's head */
+
+
+/** Adds a new node to or updates an existing Node inside the Linked List 
+ * containing the special inline markdown characters and other text as nodes
+ * @param {string} nodeType - The type of node to be created or updated
+ * @param {string} newContent - The text to be added to the new or existing node
+ * @param {Node} currentNode - The node whose content will be updated or that will serve as the predecessor to the newly created node
+ * @param {number} [charIndex=-1] - Start index of the new text to be added in the text stream being parsed
+ * @returns {Node} - The node created or updated */
 function addOrUpdateExistingNode(nodeType: string, newContent: string, currentNode: Node, charIndex: number=-1) {
-	if (!currentNode.type) { // head node starts of with mostly empty or null attribute values including type
+	if (!currentNode.type) { // head node starts with mostly empty or null attribute values including type
 		currentNode.type = nodeType;
 		currentNode.content = newContent;
 	}else if (currentNode.type !== nodeType || nodeType.startsWith("link marker")) {
-		/* Contents of different node type should be put in the same node unless the nodeType is a link marker
+		/* Contents of different node type should be put in different nodes unless the nodeType is a link marker
 		 Link markers have to be in unique nodes because they serve as boundary to basically unprocessed content */
-		// console.log(">><<>", newContent)
-		currentNode.next = {type: nodeType, closed: true, content: newContent, next: null, prev: currentNode};
+		currentNode.next = {type: nodeType, content: newContent, next: null, prev: currentNode};
 		currentNode = currentNode.next;
 	}else { // Only contents of the same node type should be put in the same node
 		currentNode.content += newContent;
 	}
 	if (nodeType.startsWith("link marker")) {
-		currentNode.closed = false; // For further processing of links
 		if (newContent === '['){
-		// console.log(charIndex, newContent)
-			currentNode.charIndex = charIndex;
+			currentNode.charIndex = charIndex; // text end index in the textstream being parsed. It will be used when getting link labels
 		}else if (newContent === '!['){
-			currentNode.charIndex = charIndex+1;
+			currentNode.charIndex = charIndex+1; // text end index in the textstream being parsed. It will be used when getting link labels
 		}
 	}
 	return currentNode;
 }
 
-// Returns a string representing the url of a GFM Autolink
+
+/** Gets the string representing the address of a valid CommonMark Autolink
+ * @param {number} startIndex - Index where the autolink starts in the string
+ * @param {string} text - String containing autolink
+ * @returns {string[]} - The first element is the address of the autolink while the second element is the type of address (email or url).
+ * The first element of the array will be null if the autolink is invalid  */
 function getAutoLinkStr(startIndex: number, text: string) {
 	const targetText = text.slice(startIndex)
 	let matchedPattern = targetText.match(/<([a-zA-Z][\w+.-]{1,32}:\S*)>/)
@@ -274,16 +294,18 @@ function getAutoLinkStr(startIndex: number, text: string) {
 		return [matchedPattern[1], "url"]
 	}
 	matchedPattern = targetText.match(/^<([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>$/)
-	// console.log(matchedPattern)
 	if (matchedPattern) {
 		return [matchedPattern[1], "email"]
 	}
 	return [null, ""];
 }
 
-/** Processes the textStream after an angle bracket inside the text parameter possibly generating html content
- * if the content processed conforms to any of the GFM specs that starts wwith an angle bracket. It returns An array of 
- * 2 elements where the generated html is the first element and the second element is the index where the processed textStream ends */
+/** Determines if an angle bracket is part of a valid html tag or autolink according to the commonmark spec
+ * @param {string} text - String containing the the angle bracket
+ * @param {number} bracketPos - index of the angle bracket in the text
+ * @param {string[]} forbiddenTagNames - array of tag names that would make the html tag invalid.
+ * @returns {(string|number)[]} - An array of 2 elements where the generated html is the first element and the 
+ * second element is the end index in the textStream. The first element will be null if the html is invalid */
 function processAngleBracketMarker(text: string, bracketPos: number, forbiddenTagNames: string[]) : [string, number] {
 	let htmlTagEndPos = getHtmlTagEndPos(bracketPos, text, forbiddenTagNames);
 	if (htmlTagEndPos > -1) {
@@ -297,27 +319,20 @@ function processAngleBracketMarker(text: string, bracketPos: number, forbiddenTa
 		let rawHtml = `<a href="mailto:${encodeURI(escapeSpecialCharacters(parseCharRef(address)))}">${address}</a>`;
 		return [rawHtml, bracketPos+address.length+1]; // bracketPos+url.length+1 : zero based addition ( + the 2 angle brackets acting as boundary for the autolink)
 	}
-	let matchedPattern = text.slice(bracketPos).match(/<!--(?!(?:>|->))[^]*-->/)
-	if (matchedPattern) {
-		return [matchedPattern[0], matchedPattern[0].length-1]
-	}
 	return [null, -1]
 }
 
+/** Gets the html entity reference of some select characters ('<', '>', '"', '&')
+ * @param {string} char - character whose html entity reference is needed
+ * @returns {string} - The html character entity reference for the character or the character itself*/
 export function getEscapedForm(char: string): string {
 	switch(char) {
 		case "<":
 			return "&lt;"
 		case '>':
 			return "&gt;"
-		// case "'":
-		// 	return "&apos;";
 		case '"':
 			return "&quot;"
-		// case '(':
-		// 	return "&lpar;";
-		// case ')':
-		// 	return "&rpar;";
 		case '&':
 			return "&amp;"
 		default:
@@ -325,18 +340,19 @@ export function getEscapedForm(char: string): string {
 	}
 }
 
-
-/** Returns the head of a Linked list containing plain text and special inline markdown characters as nodes
- * The linked list will be generated from the text parameter */
+/** Creates a Linked list whose nodes' content are special inline markdown characters and 
+ * plain text that have been seperated from each other
+ * @param {string} text - the text from which we are to generate the linked list
+ * @param {string[]} dangerousHtmlTags - list of tag names that would make any html tag invalid
+ * @returns {Node} - the head node of the linked list */
 function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs: LinkRefDataMap) {
-	const head:Node = {type: "", closed: false, content: "", next: null, prev: null}
+	const head:Node = {type: "", content: "", next: null, prev: null}
 	let currNode = head;
 	let charIsEscaped = false;
 	let i=0;
 	let adjSpaceCharCount = 0; // adjacent space character count
 
 	while (i < text.length){
-		// console.log([text, text[i]])
 		if (text[i] === '\n' && (charIsEscaped || (adjSpaceCharCount >= 2)) && i !== text.length-1) { // a hard line break is found
 			if (adjSpaceCharCount >= 2){
 				// remove the spaces representing the hardline break
@@ -347,7 +363,6 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 			}
 			currNode = addOrUpdateExistingNode("raw html", "<br />\n", currNode);
 		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i])) { //  && text[i] !== '|'
-			// all punctuations are escapable here except '|' that may be part of a table's syntax
 			let replacement = getEscapedForm(text[i]);
 			currNode = addOrUpdateExistingNode("text content", replacement, currNode);
 			charIsEscaped = false;
@@ -406,7 +421,7 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 }
 
 
-function getCharRefIfValid(text: string, index: number) { // Still need to do decimal and hexadecimal references
+function getCharRefIfValid(text: string, index: number) {
 	let ref = ""
 
 	for (let i=index+1; i<text.length; i++) {
@@ -424,38 +439,35 @@ function getCharRefIfValid(text: string, index: number) { // Still need to do de
 }
 
 
-/*
-parse character refs (raw html and every code span/block is excluded)
-finally, always replace quote, ampersand and '<' (raw html is excluded)
-*/
+/** Replaces any valid entity and numeric character references in a text
+ * @param {string} textStream - The text whose character references are to be replaced if any
+ * @returns {string} - A new string where all the valid character references have been replaced */
 export function parseCharRef(textStream: string) {
 	let output = "", i=0;
 	while (i < textStream.length) {
 		if (textStream[i] === '&') {
 			const charRef = getCharRefIfValid(textStream, i)
-			// console.log(charRef)
+
 			if (charRef) {
 				try {
 					// todo: Add proper library for parsing character references
 					if ((/^#\d{1,7}$/).test(charRef)){
 						const codePoint = charRef.slice(1)
-						// output += getEscapedForm(String.fromCodePoint(parseInt(codePoint))) // unicode character
 						output += String.fromCodePoint(parseInt(codePoint)) // unicode character
 					}else if ((/^#(?:x|X)[a-fA-F0-9]{1,6}$/).test(charRef)) {
 						const codePoint = charRef.slice(1)
-						// output += getEscapedForm(String.fromCodePoint(parseInt('0' + codePoint))) // unicode character
 						output += String.fromCodePoint(parseInt('0' + codePoint)) // unicode character
 					}else if (validEntityRefs['&'+charRef+';']) { //
-						// output += getEscapedForm(String.fromCodePoint(validEntityRefs['&'+charRef+';']["codepoints"][0])) // unicode character
 						output += String.fromCodePoint(validEntityRefs['&'+charRef+';']["codepoints"][0]) // unicode character
 					}else {
 						throw("Range Error")
-						// output += "&amp;"
 					}
-					i += charRef.length + 2; // We want parsing to continue after the semi colon that ends the refernce
+					i += charRef.length + 2; // We want parsing to continue after the semi colon that ends the reference
 					continue;
 				}catch(err) { // Range Error
-					// textStream += "&amp;"
+					output += textStream[i];
+					i++;
+					continue;
 				}
 			}
 		}
@@ -467,12 +479,15 @@ export function parseCharRef(textStream: string) {
 }
 
 
-// Returns the concatenated content of all nodes in the linked list as one string
+/** Concatenates the text content of all the nodes in a linked list. Nodes with a type attribute of "text content" 
+ * would be processed for html character references and any unescaped special characters before adding thier text content
+ * @param {Node} head - The head of the linked list node
+ * @returns {string} - The concatenated text content of all nodes */
 export function convertLinkedListToText(head: Node) {
 	let currentNode = head;
 	let outputText = ""
 	while (true) {
-		if (currentNode.type === "text content")
+		if (currentNode.type === "text content") 
 			outputText += escapeSpecialCharacters(parseCharRef(currentNode.content))
 		else
 			outputText += currentNode.content;
@@ -484,8 +499,12 @@ export function convertLinkedListToText(head: Node) {
 	return outputText;
 }
 
+
+/** Converts any valid commonmark special inline characters into their appropriate html tags
+ * @param {string} text - The string to be parsed
+ * @param {Object} linkRefsMap -  Dictionary mapping link labels to link attributes from commonmark link reference definitions 
+ * @param {string[]} dangerousHtml - List of html tag names whose tags we don't want as part of output when parsing the text*/
 export default function parseInlineNodes(text: string, linkRefs: LinkRefDataMap, dangerousHtmlTags: string[]): string {
-	// console.log(text)
 	let listHead = generateLinkedList(text, dangerousHtmlTags, linkRefs);
 	generateEmNodes(listHead);
 	return convertLinkedListToText(listHead);
