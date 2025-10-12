@@ -3,14 +3,18 @@
   "version": "1.0.0",
   "description": "\"library for parsing markdown according to a subset of the github flavored markdown spec\"",
   "main": "./src/dist/index.js",
-  "files": ["/src/dist/", "!**/*.test.js"],
+  "files": [
+    "/src/dist/",
+    "!**/*.test.js"
+  ],
   "scripts": {
     "test": "vitest"
   },
   "author": "egbebitimi121@gmail.com",
   "license": "MIT",
   "dependencies": {
-    "@types/node": "^22.5.0"
+    "@types/node": "^22.5.0",
+    "unicode-case-folding": "^1.1.1"
   },
   "devDependencies": {
     "vitest": "^2.1.1"
