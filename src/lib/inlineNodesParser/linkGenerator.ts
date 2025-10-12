@@ -1,6 +1,6 @@
 import type {Node} from "./index"
 import { PUNCTUATIONS, escapeSpecialCharacters, parseCharRef } from "./index"
-const querystring = require('node:querystring')
+import { caseFold } from "unicode-case-folding"
 
 export interface LinkRefData {
 	label: string;
@@ -86,12 +86,28 @@ function getEnclosedText(startNode: Node, endNode: Node) {
 	return outputText;
 }
 
-/** Normalize a string the way the common mark string sepcifies string normalization
- * @param {Node} startNode 
- * @param {Node} endNode
- * @returns {string} the plain text content */
+/** Normalize a string by doing a Unicode case fold, stripping leading and trailing spaces, tabs, and line endings, 
+ * and collapsing consecutive internal spaces, tabs, and line endings to a single space.
+ * @param {string} str - The string to be normalized
+ * @returns {string} the normalized string */
 function normalised(str: string) {
-	return str.toLowerCase().replace(/\s+/, ' ').trim();
+	let newStr = ""
+	const targetWhiteSpace  = " \t\n" // String containing the only type of trailing and leading whitespace chracters to be stripped off 
+	let prevWspTextIsTargetWsp = false // Indicates if the previous whitespace text is target whitespace
+
+	for (let i=0; i<str.length; i++){
+		if (targetWhiteSpace.includes(str[i]) && !prevWspTextIsTargetWsp) {
+			prevWspTextIsTargetWsp = true
+		}else if (!targetWhiteSpace.includes(str[i])) {
+			if (prevWspTextIsTargetWsp && newStr){ // previous whitespace text is target whitespace and it's an internal space
+				newStr += " "
+				prevWspTextIsTargetWsp = false
+			}
+			newStr += caseFold(str[i])
+		}
+	}
+
+	return newStr;
 }
 
 export interface LinkRefDataMap {
