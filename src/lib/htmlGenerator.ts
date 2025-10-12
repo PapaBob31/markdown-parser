@@ -34,6 +34,9 @@ export function updateLinkRefsMap(rootNode: HtmlNode, linkRefsMap: LinkRefDataMa
  * @param {string[]} dangerousHtml - List of html tag names whose tags we don't want as part of output when parsing the markdown text */
 function parseContent(node: HtmlNode, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]) {
 	if (node.nodeName === "paragraph" || (/h[1-6]/).test(node.nodeName)) {
+		/* leading or trailing spaces are mainly stripped off before inline parsing so that spaces or tabs produced from entity references at the 
+		 beginning or end of text won't also get stripped off and a paragraph that ends with two or more spaces won't end with a hard line break */
+		node.textContent = node.textContent.trim() // 
 		node.textContent = parseInlineNodes(node.textContent as string, linkRefs, dangerousHtmlTags);
 	}else if (["indented code block", "fenced code backtick", "fenced code tilde"].includes(node.nodeName)) {
 		node.textContent = escapeSpecialCharacters(node.textContent)
@@ -88,9 +91,9 @@ function generateNodeHtml(node: HtmlNode) {
 		return `${node.textContent.trimEnd()}\n`
 	}else if (node.nodeName === "paragraph") {
 		if (node.infoString === "loose") {
-			return node.textContent ? `<p>${node.textContent.trim()}</p>\n` : "";
+			return node.textContent ? `<p>${node.textContent}</p>\n` : "";
 		}else {
-			return node.textContent.trim();
+			return node.textContent;
 		}
 	}else if ((/h[1-6]/).test(node.nodeName)) {
 		const tag = node.nodeName;

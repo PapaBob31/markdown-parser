@@ -355,7 +355,7 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 	let adjSpaceCharCount = 0; // adjacent space character count
 
 	while (i < text.length){
-		if (text[i] === '\n' && (charIsEscaped || (adjSpaceCharCount >= 2)) && i !== text.length-1) { // a hard line break is found
+		if (text[i] === '\n' && (charIsEscaped || (adjSpaceCharCount >= 2))) { // a hard line break is found
 			if (adjSpaceCharCount >= 2){
 				// remove the spaces representing the hardline break
 				let contentEnd = currNode.content.length - adjSpaceCharCount;
