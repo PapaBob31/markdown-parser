@@ -11,6 +11,13 @@ right flanking delimiter run
 [punctuation]****[punctuation|whitespace]
 */
 
+/** A node of the Linked List generated when parsing inline nodes when parsing the text
+ * @typedef {Object} Node
+ * @property {string} nodeType - string representing the type of node
+ * @property {string} content - plain text content of the node
+ * @property {null|Node} next - The next node in the linked list or null if this is the list's tail
+ * @property {null|Node} prev - The previous node in the linked list or null if this is the list's head */
+
 /** Set the type attribute of a node whose content is a potential delimiter run to right flanking or 
  * left flanking according to the common mark spec
  * @param {Node} currentNode - the node whose content attribute contains the potential delimiter run substring
