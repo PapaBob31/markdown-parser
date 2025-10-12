@@ -8,234 +8,20 @@ export interface LinkRefData {
 	title: string
 }
 
-/** Returns the index of the first '\n' character in the text parameter starting from the startIndex parameter
- * or the index of the last character if no '\n' character was found provided no non-whitespace character 
- * was found before then*/
-function getEndOfLineIfValid(text: string, startIndex: number) {
-	if (startIndex >= text.length-1) {
-		return startIndex;	
-	}
-	for (let i=startIndex; i<text.length; i++) {
-		if ((/\S/).test(text[i])) {
-			return -1;
-		}
-		if (text[i] === '\n') {
-			return i
-		}
-		if (i === text.length-1)
-			return i;
-	}
-}
+/** An object containing link destination and title supposedly gotten from a link reference definition
+ * @typedef {Object} LinkData
+ * @property {null|string} destination
+ * @property {null|string} title */
 
 
-/** Parses a text starting from an optionally specified index and returns an Array of Objects
- * whose properties are the label, destination and title of a valid link reference 
- * definition (as per GFM spec). It also returns the new content of the text parameter 
- * after stripping the link reference definitions from the text parameter
- * @param {text} : The string containing the link refernce definition */
-export function getLinkReferenceDefs(text: string, startIndex:number=0) : {linkRefsData: LinkRefData[], newText: string} {
-	let i = startIndex;
-	const linkRefDef = {label: "", destination: "", title: ""};
-	const results:{linkRefsData: LinkRefData[], newText: string} = {linkRefsData: [], newText: ""};
-
-	[linkRefDef.label, i] = getLabel(text, i);
-	if (!linkRefDef.label || i == text.length-2 || text[i+1] !== ":" ||
-	 !(/\S/).test(linkRefDef.label) || linkRefDef.label.length > 999) // invalid label syntax
-		return results;
-	[linkRefDef.destination, i] = getDestination(text, i+2); // i is incremented so we start parsing the destination immediately after the ':' character
-	if (!linkRefDef.destination) {
-		return results;
-	}
-	let endIndex = -1;
-	[linkRefDef.title, endIndex] = getTitle(text, i+1); // i is incremented so we start parsing the title immediately after the last destination character
-	if (linkRefDef.title === null ) { // invalid title syntax
-		return results;	
-	}
-	if (linkRefDef.title !== null){
-		let refEndIndex = getEndOfLineIfValid(text, endIndex+1);
-		if (refEndIndex === -1) // non-whitespace character after title was found
-			return results;
-		i = refEndIndex;
-	}
-
-	// valid link reference definition
-	results.linkRefsData.push(linkRefDef);
-	results.newText = text.slice(i+1)
-
-	let moreData = i !== text.length-1 && getLinkReferenceDefs(text, i);
-	if (moreData.linkRefsData.length > 0) { // the text still contains more link refernece definitions
-		results.linkRefsData.push(...moreData.linkRefsData)
-		results.newText = moreData.newText; // the new content of the text would always be after the last link reference definition
-	}
-	return results
-}
-
-/** Returns an Array containing a GFM label text followed by the index where the label ends in a
- *  string (that is, the closing ']' index) if any syntatically correct label is present in the string
- * @param {text} : The string to parse
- * @param {startIndex} : The index to start parsing the string from
- * */
-export function getLabel(text: string, startIndex=0): [string, number] {
-	let linkLabel = ""
-	let contentRange = false; // boolean indicating if the character being iterated is part of the label text itself and not just markup
-	let charIsEscaped = false;
-	let i = startIndex;
-
-	while (true) {
-		if (charIsEscaped) {
-			linkLabel += text[i];
-			charIsEscaped = false;
-		}else if (text[i] === '\\' && !contentRange) { // invalid escape character
-			return [null, -1]
-		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
-			linkLabel += text[i];
-			charIsEscaped = true
-		}else if (!contentRange && text[i] === '[') {
-			contentRange = true;
-		}else if (!contentRange && (/\S/).test(text[i])){
-			return [null, -1]
-		}else if (text[i] === ']') {
-			break;
-		}else if (text[i] === '[') { // link label contains unescaped '['
-			return [null, -1]
-		}else if (contentRange) {
-			linkLabel += text[i]
-		}
-		if (i === text.length-1){
-			return [null, -1]; // No link label was parsed yet
-		}
-		i++;
-	}
-
-	return [linkLabel, i]
-}
-
-
-function hasBalancedBrackets(text: string) {
-	let unBalancedBrackets = 0
-
-	for (let char of text) {
-		if (char === '(') {
-			unBalancedBrackets++;
-		}else if (char === ')' && unBalancedBrackets === 0) { // no opening bracket
-			return false
-		}else if (char === ')') {
-			unBalancedBrackets--
-		}
-	}
-
-	if (unBalancedBrackets === 0)
-		return true;
-	return false;
-}
-
-/** Returns an Array containing a link destination followed by the index of the character where the 
- * destination ends in a string provided the string conforms to the GFM link syntax.
- * @param {text} : string to parse
- * @param {startIndex} : Index of text to start parsing from 
- * @param {partOfInlineLink}: indicates if the destination being parsed is part of an inline link or link reference definition*/
-export function getDestination(text: string, startIndex: number, partOfInlineLink:boolean=false): [string, number] {
-	let i = startIndex;
-	let contentRange = false; // boolean indicating if the character being iterated is part of the link destination itself and not just markup
-	let destination = ""
-	let charIsEscaped = false;
-	let destHasBoundary = false;
-
-	while(true) {
-
-		if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
-			charIsEscaped = true // next character will be escaped
-		}else if (contentRange) { 
-			destination+=text[i];
-			if (charIsEscaped) {
-				charIsEscaped = false;
-				if ((/\s/).test(text[i+1]))
-					break;
-				i++;
-				continue;
-			}
-		}
-
-		if (destHasBoundary) {
-			if (text[i] === '>'){
-				destination = destination.slice(1, destination.length-1); // strip the '<>' boundary, duhh
-				break;
-			}else if (text[i] === '<'){ // unescaped
-				return [null, -1];
-			}
-		}else if (text[i+1] === ')' && partOfInlineLink && hasBalancedBrackets(destination)){
-			break;
-		}else if (contentRange && (/\s/).test(text[i+1])) {
-			break;
-		}
-
-		if ((/\S/).test(text[i]) && !contentRange) {
-			contentRange = true
-			if (text[i] === '<' && !charIsEscaped)
-				destHasBoundary = true;
-			destination += text[i];
-		}
-
-		if (i === text.length-1){
-			return [null, -1];
-		}
-
-		i++;
-	}
-	if (hasBalancedBrackets(destination)){
-		return [destination, i];
-	}
-	return [null, -1];
-}
-
-
-/** Returns a link title and the index where the title ends in a string
- * provided the string conforms to the markdown link syntax.
- * @param {text} : string to parse
- * @param {startIndex} : Index of text to start parsing from */
-export function getTitle(text: string, startIndex: number): [string, number] {
-	let i = startIndex;
-	let contentRange = false; // boolean indicating if the character being iterated is part of the link title itself and not just markup
-	let charIsEscaped = false;
-	const properDelimiters = "'\"("
-	let startDelimiter = '';
-	let title = "";
-
-	while (true) {
-		if (charIsEscaped) {
-			title += text[i];
-			charIsEscaped = false;
-		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
-			charIsEscaped = true
-		}else if (!contentRange && (/\S/).test(text[i])){
-			if (!properDelimiters.includes(text[i])) {
-				return [null, -1]
-			}else {
-				contentRange = true;
-				startDelimiter = text[i];
-			}
-		}else if (contentRange){
-			if (startDelimiter === text[i] || (startDelimiter === "(" && text[i] === ")")) {
-				break; 
-			}
-			if (startDelimiter === '(' || text[i] === '('){ // unescaped
-				return [null, -1]
-			}
-			title += text[i];
-		}
-
-		i++;	
-	}
-	return [title, i];
-}
-
-/** Returns a node that's a possible opening node for a link text marker closing node
- * @param {node} : Node that requires an opening Node*/
+/** Returns a node that's a possible opening node for a link text marker's closing node
+ * @param {Node} node - Node that requires an opening Node
+ * @returns {Node|null} - The opening node if found, else null*/
 function getOpener(node: Node) {
 	let currentNode = node.prev;
 	
 	while (currentNode !== null) {
-		if (currentNode && currentNode.type === "link marker start") {
+		if (currentNode.type === "link marker start") {
 			return currentNode;
 		}
 		currentNode = currentNode.prev;
@@ -248,7 +34,45 @@ interface LinkAttributes {
 	title: string;
 }
 
-// Returns the plain text content of all the nodes between two nodes
+/** Determines if a '[' character in a text is the start of a syntatically correct common mark label
+ * @param {string} text - The string to extract the label data from
+ * @param {number} startIndex - The index of the opening '[' link marker
+ * @returns {(string|number)[]} If successful, an Array of two elements where the first is the label text and the second is the index 
+ * where the label ends in a string. If unsccesful, the first element is null and second is -1 */
+function getLabel(text: string, startIndex: number): [string, number] {
+	let linkLabel = ""
+	let charIsEscaped = false;
+	let i = startIndex+1;
+
+	while (true) {
+		if (charIsEscaped) {
+			linkLabel += text[i];
+			charIsEscaped = false;
+		}else if (text[i] === '\\' && i < text.length-1 && PUNCTUATIONS.includes(text[i+1])) {
+			/* The backslash is kept as part of the text while still being able to escape punctuations because 
+			the full label text is needed when a search for a link reference definition is to be done later */
+			linkLabel += text[i];
+			charIsEscaped = true
+		}else if (text[i] === ']') {
+			break;
+		}else if (text[i] === '[') { // link label contains unescaped '['
+			return [null, -1]
+		}else{
+			linkLabel += text[i]
+		}
+		if (i === text.length-1){
+			return [null, -1]; // No link label was parsed yet
+		}
+		i++;
+	}
+
+	return [linkLabel, i]
+}
+
+/** Gets the string content of all the nodes between two nodes if no in-between node contains commonmark link markers
+ * @param {Node} startNode 
+ * @param {Node} endNode
+ * @returns {string} the plain text content */
 function getEnclosedText(startNode: Node, endNode: Node) {
 	let currentNode = startNode.next;
 	let outputText = "";
@@ -262,6 +86,10 @@ function getEnclosedText(startNode: Node, endNode: Node) {
 	return outputText;
 }
 
+/** Normalize a string the way the common mark string sepcifies string normalization
+ * @param {Node} startNode 
+ * @param {Node} endNode
+ * @returns {string} the plain text content */
 function normalised(str: string) {
 	return str.toLowerCase().replace(/\s+/, ' ').trim();
 }
@@ -270,9 +98,10 @@ export interface LinkRefDataMap {
 	[normalisedLabel:string]: LinkRefData
 }
 
-/** Returns an object whose attributes are the destination and title strings associated with a label text
- * @param {labelStr} : target label text
- * @param {linkRefs} : label text - link attributes mappings */ 
+/** Creates an object whose attributes are the destination and title strings associated with a label text
+ * @param {Object} linkRefs - Dictionary or Hash map mapping link labels to link attributes from commonmark link reference definitions
+ * @param {string} labelStr - The label text whose destination and title is needed
+ * @returns {{destination: ?string, title: ?string}} - The object containing the destination and title as attributez */ 
 function getReferenceLinkData(labelStr: string, linkRefs: LinkRefDataMap): LinkAttributes {
 	let refLinkData = linkRefs[normalised(labelStr)]
 	if (!refLinkData)
@@ -280,14 +109,18 @@ function getReferenceLinkData(labelStr: string, linkRefs: LinkRefDataMap): LinkA
 	return {destination: refLinkData.destination, title: refLinkData.title};
 }
 
-
-// Returns the link attributes of a shorcut, refernce or colapsed link as well as the index where the link ends
+/** Creates an object whose attributes are the destination and title strings associated with the first reference link parsed in a string
+ * @param {string} linkText - The parsed text in between the first set of square brackets in any common mark reference link
+ * @param {string} unParsedLinkText - Unparsed link text in between the first set of square brackets in any common mark reference link
+ * @param {string} textStream - The string containing the reference link
+ * @param {number} startIndex - index of the closing ']' for the link text
+ * @param {Object} linkRefs - Dictionary or Hash map mapping link labels to link attributes from commonmark link reference definitions
+ * @returns {LinkData} - Destination and title maybe null if the link label is invalid */
 function getReferenceLinks(linkText: string, unParsedLinkText: string, textStream: string, startIndex: number, linkRefs: LinkRefDataMap):[LinkAttributes, number] {
 	let i = startIndex;
 	if (i === textStream.length-1 || textStream[i+1] !== '[') {
 		return [getReferenceLinkData(unParsedLinkText, linkRefs), i]; // shortcut links
 	}
-	// console.log("bro")
 	let [labelText, labelTextEndIndex] = getLabel(textStream, i+1);
 	let data: {destination: string, title: string} = {destination: null, title: null};
 
@@ -307,6 +140,10 @@ function getReferenceLinks(linkText: string, unParsedLinkText: string, textStrea
 }
 
 
+/** Gets the string content of all the nodes between two nodes if the in-between node is a "text content node"
+ * @param {Node} startNode 
+ * @param {Node} endNode
+ * @returns {string} the plain text content */
 function getEnclosedPlainText(startNode: Node, endNode: Node) {
 	let currentNode = startNode.next;
 	let outputText = "";
@@ -315,7 +152,7 @@ function getEnclosedPlainText(startNode: Node, endNode: Node) {
 		if (currentNode.type === "text content")
 			outputText += currentNode.content;
 		else if (currentNode.type === "md img html") {
-			const match = currentNode.content.match(/alt="([^]*)"/)
+			const match = currentNode.content.match(/alt="([^]*)"/) // The alt text of an commonmark image is it's plain string content
 			outputText += match[1];
 		}
 		currentNode = currentNode.next;
@@ -324,20 +161,19 @@ function getEnclosedPlainText(startNode: Node, endNode: Node) {
 }
 
 
-// Transforms openingNode and closingNode to either 'a' or 'img' html tags as appropriate
-function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: any) {
+/** Transforms The content of common mark link nodes to either 'a' or 'img' html tags as appropriate 
+ * @param {Node} openingNode
+ * @param {Node} closingNode 
+ * @param {LinkData} LinkAttributes
+ * @param {string} linktext - link text*/
+function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: LinkAttributes, linkText: string) {
 	let linkType = openingNode.content === "![" ? "img" : "link";
-	let linkText = ""
-
-	if (linkType === "img") {
-		linkText = getEnclosedPlainText(openingNode, closingNode)
-	}else linkText = getEnclosedText(openingNode, closingNode)
 
 	if (attributes.title)
 		attributes.title = escapeSpecialCharacters(parseCharRef(attributes.title))
 
-	// console.log("HERE", attributes.title)
-	attributes.destination = escapeSpecialCharacters(encodeURI(parseCharRef(decodeURI(attributes.destination)))); // what in the hell??
+	// decode the uri first in case of characters already percent encoded because they will still be percent encoded
+	attributes.destination = escapeSpecialCharacters(encodeURI(parseCharRef(decodeURI(attributes.destination))));
 	if (linkType === "link") {
 		openingNode.content = `<a href="${attributes.destination}"${attributes.title ? ' title="'+attributes.title+'"' : ""}>`;
 		closingNode.content = `</a>`
@@ -353,43 +189,30 @@ function transformToLinkHtml(openingNode: Node, closingNode: Node, attributes: a
 	}
 }
 
-// Changes all "link marker start" nodes before startNode parameter to "text content" nodes
-function closeAllOpenersUpstream(startNode: Node) {
-	let currentNode = startNode
-
-	while (currentNode) {
-		if (currentNode.type === "link marker start" && currentNode.content !== '![') {
-			currentNode.type = "text content"
-		}
-		currentNode = currentNode.prev;
-	}
-}
-
-// Returns a string with all whitespace and all non-ascii characters escaped
-function urlEncode(text: string){ // why the fuck?  don't tell me I tried to rewrite encodeURIComponent
-	let output = "";
-	for (let char of text){
-		if ((/\s/).test(char) || !(/[\x00-\x7F]/).test(char)){
-			output += querystring.escape(char);
-		}else output += char;
-	}
-	return output
-}
-
+/** Determines if a character is the last character in any component (destination, title) of a common mark link
+ * @param {string} startDelimiter - The part's dtart delimiter
+ * @param {string} char - The character to check if it ends the part
+ * @returns {boolean} true if it ends it, false if it doesn't*/
 function currentLinkComponentHasEnded(startDelimiter: string,  char: string){
 	const startEndDelimiterMapping: {[key: string]: string} = {"(": ")", "<": ">", "\"":"\"", "'": "'"};
-	return startEndDelimiterMapping[startDelimiter] === char || (!startDelimiter && (/\s/).test(char))
+	return startEndDelimiterMapping[startDelimiter] === char || (!startDelimiter && (" \t\n").includes(char))
 }
 
 
+/** Gets the destination and optionally title of an inline markdown link
+ * @param {string} text - The string containing the markdown link
+ * @param {number} startIndex - The index of the closing ']' of the link's link text
+ * @returns {[[?string, ?string], number]} An Array of two elements where the first is an array containing 2 elements. first element is an array and 
+ * the second is the index of the closing parenthesis for inline links. The inner has the link destination at index 0 and title at index 1 if successful, */
 function getLinkComponents(text: string, startIndex: number) {
-	let linkComponents: (string|null)[] = [null, null]
+	let linkComponents: (string|null)[] = [null, null] // link destination will be in index 0. title will be in index 1
 	let charIsEscaped = false
 	let i = startIndex;
 	let compIndex = 0;
-	let compDelimiter = ""
-	let unbalancedParen = 0
+	let compDelimiter = "" // the start delimiter of the link's component being processed. destination or title
+	let unbalancedParen = 0 // unbalanced parenthesis inside link destination
 	const titleStartDelimiters = "(\"'"
+	const whitespaceMargin = " \t\n"
 
 	while (i < text.length) {
 		let char = text[i]
@@ -399,7 +222,7 @@ function getLinkComponents(text: string, startIndex: number) {
 				linkComponents[0] = ""
 			return [linkComponents, i];
 		}
-		if (compIndex < 2 && linkComponents[compIndex] === null) {
+		if (compIndex < 2 && linkComponents[compIndex] === null) { // at least one unextracted link component
 			if (compIndex == 0) {
 				if (char === '<'){
 					linkComponents[compIndex] = ""
@@ -407,30 +230,29 @@ function getLinkComponents(text: string, startIndex: number) {
 				}else if ((/\S/).test(char)){
 					linkComponents[compIndex] = ""
 				}
-			}else if ("'\"(".includes(char)) {
+			}else if (titleStartDelimiters.includes(char)) {
 				compDelimiter = char
 				linkComponents[compIndex] = ""
-			}else if ((/\S/).test(char)){
+			}else if (!whitespaceMargin.includes(char)){
 				return [[null, null], -1]
 			}
-			if (compDelimiter || linkComponents[compIndex] === null) {
+			if (compDelimiter || linkComponents[compIndex] === null) { // component with a non-whitespace delimiter was started or it's just whitespace margin
 				i++;
-				continue;
+				continue; // the current character is not part of the component being processed actual content if any
 			}
 		}else if (!charIsEscaped) {
 			if (currentLinkComponentHasEnded(compDelimiter, char)) {
 				compIndex++;
 				compDelimiter = "";
 			}else if ((compDelimiter === char) || (compDelimiter === '<' && char === '\n')){
-				// return [[null, null], i]
 				return  [[null, null], -1]
-			}else if (compIndex === 0 && !compDelimiter) {
-				if (char === ')' && compDelimiter != "<"){ // no need for this second check na abi?
+			}else if (compIndex === 0 && !compDelimiter) { // component being parsed is whitespace delimited link destination
+				if (char === ')'){
 					unbalancedParen--
-				}else if (char === '(' && compDelimiter != "<"){ // no need for this second check na abi?
+				}else if (char === '('){
 					unbalancedParen++
 				}
-			}else if (compIndex === 2 && !(/\s/).test(char)) {
+			}else if (compIndex === 2 && !whitespaceMargin.includes(char)) {
 				return [[null, null], -1]
 			}
 		}
@@ -448,14 +270,14 @@ function getLinkComponents(text: string, startIndex: number) {
 
 		i++;
 	}
-	// console.log(unbalancedParen, linkComponents)
 	return [[null, null], -1]
 }
 
-// 387 - 463, 347-400
-
+/** Removes every string representing valid link reference definitions from a string, extracts the data and updates a hash map with the data
+ * @param {string} text - The string to extract link reference definitions from
+ * @param {Object} linkRefsMap - Hash map mapping link labels to link attributes from link reference definitions 
+ * @returns {string} The remaining text after removing any valid link refernece definition text */
 export function extractLinkRefsData(text: string, linkRefsMap: LinkRefDataMap) {
-	// console.log("shess", text)
 	let i = 0;
 	let plainText = ""
 	let startIndex = i;
@@ -466,18 +288,14 @@ export function extractLinkRefsData(text: string, linkRefsMap: LinkRefDataMap) {
 
 		let data = getLinkReferenceDefData(text, startIndex) as [string[], number]
 		let components = data[0];
-		// console.log(components)
 		i = data[1]
-		// console.log("OKAY", text.length, i)
 
 		if (components[0] !== null && components[0].length <= 999 && (/\S/).test(components[0])) {
 			linksData.push(components)
 			i++;
-		}else {
-			// plainText += text.slice(startIndex, i+1);
-			// i++;
+		}else { // this text is a paragraph
 			plainText += text.slice(startIndex, text.length);
-			break;
+			break; // link ref definitions can't interrupt paragraphs so no need to look further
 		}
 	}
 
@@ -490,12 +308,15 @@ export function extractLinkRefsData(text: string, linkRefsMap: LinkRefDataMap) {
 		if (!linkRefsMap[normalizedLabel])
 			linkRefsMap[normalizedLabel] = basicData
 	}
-	// console.log("<<shess>>", text)
 	return plainText;
 
 }
 
-
+/** Returns the index of the first new line character or the index of 
+ * the last character if no new line character was found in a string
+ * @param {string} text - The string whose current line last char index to be returned
+ * @param {number} startIndex - The index to start checking from
+ * @returns {number} - current line last character index */
 function getEndOfLine(text: string, startIndex: number) {
 	if (startIndex >= text.length-1) {
 		return startIndex;	
@@ -510,14 +331,19 @@ function getEndOfLine(text: string, startIndex: number) {
 }
 
 
+/** Extract valid link reference definitions data from a string
+ * @param {string} text - The string to extract link reference definitions data from
+ * @param {number} startIndex - Index where the processing of the string should start from
+ * @returns {[[string, string, string], number]} [["llink text", "link destination", ?"link title"], link_ref_text_end_index] or [[null, null, null], -1]*/
 function getLinkReferenceDefData(text: string, startIndex: number) {
 	let i = startIndex;
-	let components:(string|null)[] = [null, null, null]
-	let compIndex = 0;
-	let compDelimiter = ""
-	let unbalancedParen = 0;
+	let components:(string|null)[] = [null, null, null] // [text, destination, title]
+	let compIndex = 0; // index of the link component currently being validated and extracted
+	let compDelimiter = "" // the start delimiter of the link's component being processed. destination or title
+	let unbalancedParen = 0; // unbalanced parenthesis inside link destination
 	let charIsEscaped = false
 	let result: [string[], number] = [[null, null, null], -1]
+	const whitespaceMargin = " \t\n"
 
 	while (i < text.length) {
 		const char = text[i];
@@ -526,37 +352,35 @@ function getLinkReferenceDefData(text: string, startIndex: number) {
 			if ((compIndex === 0 && char === '[') || (compIndex === 1 && char === '<') || (compIndex === 2 && "'\"(".includes(char))){
 				components[compIndex] = ""
 				compDelimiter = char
-			}else if (compIndex === 1 && (/\S/).test(char)) {
+			}else if (compIndex === 1 && !whitespaceMargin.includes(char)) { // first character of whitespace delimited link destination content
 				components[compIndex] = ""
-			}else if ((/\s/).test(char)){
+			}else if (whitespaceMargin.includes(char)){ // char could be the newline character where this link reference data ends
 				if (char === '\n' && compIndex === 2){
-					result = [[...components], i]
+					result = [components, i]
 				}else if (char === '\n' && compIndex === 3) {
 					return [components, i]
 				}
-			}/*else if (compIndex === 2 && lastNewLineIndex > -1) {
-				return [components, i-1]
-			}*/else {
+			}else {
 				if (result[1] > -1)
 					return result
+				// outside this function, Parsing needs continue on a new line of thi same text so end of line index is returned
 				return [[null, null, null], getEndOfLine(text, i)]
 			}
-			if (compDelimiter){
+			if (compDelimiter && compIndex === 2 && !whitespaceMargin.includes(text[i-1])) // Title isn't separated from the link destination by spaces or tabs
+				return [[null, null, null], getEndOfLine(text, i)]
+			if (compDelimiter){ // component with a non-whitespace delimiter was started
 				i++;
 				continue;
 			}
 		}else if (compIndex < 3 && !charIsEscaped) {
 			if (currentLinkComponentHasEnded(compDelimiter, char)) {
-				if (char == '>' && i < text.length-2 && !(/\s/).test(text[i+1]))
-					return [[null, null, null], getEndOfLine(text, i)]
 				compIndex++;
 				compDelimiter = "";
 				if (char === '\n' && compIndex === 2){
-					result = [[...components], i]
-					// lastNewLineIndex = i;
+					result = [components, i]
 				}
 			}else if (compIndex === 0 && char === ']') {
-				if (text[i+1] === ':') {
+				if (i < text.length-1 && text[i+1] === ':') {
 					compIndex++;
 					compDelimiter = "";
 					i++;
@@ -564,6 +388,7 @@ function getLinkReferenceDefData(text: string, startIndex: number) {
 					return [[null, null, null], getEndOfLine(text, i)]
 				}
 			}else if ((compDelimiter === char) || (compDelimiter === '<' && char === '\n')){
+				// char is part of a component thats not allowed to have it's delimiter as part of it's content or there's a new line inside link destination
 				return [[null, null, null], getEndOfLine(text, i)]
 			}else if (compIndex === 1 && !compDelimiter) {
 				if (char === ')'){
@@ -598,8 +423,13 @@ function getLinkReferenceDefData(text: string, startIndex: number) {
 }
 
 
-/** Generates nodes containing html link tags from a textStream and adds the nodes into
- * an already exisiting linked list. Parsing starts from a specified index in the textStream */
+/** Parses a string for the first valid commonmark link (img, inline, reference e.t.c) and generates linked list
+ * nodes containing the resulting html. This nodes are added to an already existing linked list.
+ * @param {string} textStream - The string to be parsed
+ * @param {Node} closer - The tail of the linked list to be updated. It's also the node containing the closing delimiter (']') of the potential link
+ * @param {Object} linkRefsMap - Hash map mapping link labels to link attributes from link reference definitions 
+ * @param {string} startIndex - Index of the character to start parsing from. This is also the index of the closing delimiter (']')
+ * @returns {[Node, number]} - The node where the generated raw html ends and the index where the link ends in the textStream*/
 export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs: LinkRefDataMap, startIndex: number) : [Node, number] {
 	let linkAttributes: {destination: string, title: string} = {destination: null, title: null}
 	const opener = getOpener(closer)
@@ -607,9 +437,9 @@ export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs:
 		return [null, -1];
 	
 	let linkText = ""
-	if (opener.content === '[')
+	if (opener.content === '[') // normal link start delimiter
 		linkText = getEnclosedText(opener, closer);
-	else
+	else // img link start delimiter
 		linkText = getEnclosedPlainText(opener, closer);
 
 	if (linkText === null) {
@@ -620,33 +450,29 @@ export function generateLinkHtmlNode(textStream: string, closer: Node, linkRefs:
 	closer.charIndex = startIndex
 
 	let i = startIndex;
-	if (i < textStream.length-2 && textStream[i+1] === "(") {
+	if (i < textStream.length-2 && textStream[i+1] === "(") { // inline links
 		i+=2; // Destination parsing should start immediately after the '(' character
-		// console.log("AAAAH", textStream[i], textStream[startIndex])
 		let [components, endIndex] = getLinkComponents(textStream, i) as [string[], number]
-		// console.log(components)
 		linkAttributes.destination = components[0]
 		linkAttributes.title = components[1]
 		if (i > -1)
 			i = endIndex;
 	}
 
-	if (linkAttributes.destination === null) {
+	if (linkAttributes.destination === null) { // inline link parsing failed
+		// possibly a link reference
 		const unParsedLinkText = textStream.slice(opener.charIndex+1, closer.charIndex);
 		[linkAttributes, i] = getReferenceLinks(linkText, unParsedLinkText, textStream, i, linkRefs);		
 	}
 	
-	if (linkAttributes.destination === null) {
+	if (linkAttributes.destination === null) { // not an inline link and not a link reference
+		// opening and closing delimters don't count as special characteers 
 		opener.type = "text content"
 		closer.type = "text content"
 		return [null, -1];
 	}else {
-		// linkAttributes.destination = urlEncode(linkAttributes.destination)
 		linkAttributes.title = linkAttributes.title && parseCharRef(linkAttributes.title)
-		// if (opener.content === '[')
-		// 	closeAllOpenersUpstream(opener.prev) // closes all unclosed markers before 'opener' node since links can't be nested
-
-		transformToLinkHtml(opener, closer, linkAttributes)
+		transformToLinkHtml(opener, closer, linkAttributes, linkText)
 		if (opener.type === "md img html")
 			return [opener, i]; // `i` is the index where the link ends in the string
 		return [closer, i]

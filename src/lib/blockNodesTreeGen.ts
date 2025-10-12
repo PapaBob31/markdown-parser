@@ -688,7 +688,7 @@ function processParagraphOrHtml7Text(textTokens: string[], parentNode: HtmlNode,
 /** Creates a new header node that follows the setext header syntax
  * @param {HtmlNode} headerParentNode - parent node of the new header node to be careated
  * @param {string} headerType - setext header h1 | setext header h2
- * @param {Object} linkRefsMap - Dictionary mapping link labels to link attributes from commonmark link reference definitions 
+ * @param {Object} linkRefsMap - Dictionary or Hash map mapping link labels to link attributes from commonmark link reference definitions 
  * @returns {HtmlNode} - The newly created header node or null */
 function addSetextHeaderNode(headerParentNode: HtmlNode, headerType: string, linkRefsMap: LinkRefDataMap) {
 	let paragraphBeforeLine = null
@@ -737,7 +737,7 @@ function addHtmlBlockNode(parentNode: HtmlNode, textTokens: string[], htmlBlockT
  * @param {string} potentialBlockType - Indicates the type of leaf block node that's to be created
  * @param {HtmlNode} containerParentNode - parent node of the new leaf block node
  * @param {number} leafBlockStartIndex - The index where the new node starts in textTokens
- * @param {Object} linkRefsMap - Dictionary mapping link labels to link attributes from commonmark link reference definitions 
+ * @param {Object} linkRefsMap - Dictionary or Hash map mapping link labels to link attributes from commonmark link reference definitions 
  * @returns {HtmlNode|null} - The newly created leaf block node or null if none was created */
 function addNonParagraphLeafBlockNode(
 	potentialBlockType: string, containerParentNode: HtmlNode, textTokens: string[], leafBlockStartIndex: number, linkRefsMap: LinkRefDataMap,
@@ -835,7 +835,7 @@ function continueOpenedNonParagraphContent(parentNode: HtmlNode, textTokens: str
  * @param {number} tokenIndex - The index where the new content starts in textTokens
  * @param {number} tokenStartIndex - The character index in the line of text where the node to be created content starts from
  * @param {boolean} lineIsBlank - Indicates if the line of text is a blank line or not
- * @param {Object} linkRefsMap - Dictionary mapping link labels to link attributes from commonmark link reference definitions 
+ * @param {Object} linkRefsMap - Dictionary or Hash map mapping link labels to link attributes from commonmark link reference definitions 
  * @returns {string} - Name of the newly created node if it was created or some other text giving a short description of why a new node wasn't ccreated */
 function createNonParagraphAndNonHtml7Nodes(
 	parentNode: HtmlNode, tokenStartIndex: number, textTokens: string[], tokenIndex: number, linkRefsMap: LinkRefDataMap) {
@@ -907,7 +907,7 @@ function getBlockQuoteNode(nearestOpenedAncestor: HtmlNode, textTokens: string[]
 /** Creates and add markdown blocks (as determined by the semantics of the text token) to a (abstract syntax?) tree
  * @param {Htmlnode} lastOpenedContainerNode - is the root node or the last opened list item node that has no blockquote node as an ancestor
  * @param {string[]} textTokens - is an array of strings generated from a line of text where each string could potentially indicate a markdown container block
- * @param {Object} linkRefsMap - Dictionary mapping link labels to link attributes from commonmark link reference definitions
+ * @param {Object} linkRefsMap - Dictionary or Hash map mapping link labels to link attributes from commonmark link reference definitions
  * @returns {Htmlnode} - The last container node that was processed */
 function addBlockNodesToTree(lastOpenedContainerNode: HtmlNode, textTokens: string[], linkRefsMap: LinkRefDataMap) {
 	let tokenEndIndex = -1 
@@ -1059,7 +1059,7 @@ function setLooseListNodesAsLoose(node: HtmlNode) {
 
 /** Generates a new (abstract syntax?) tree from a text
  * @param {string} textStream - The text the tree will be generated from
- * @param {Object} linkRefsMap -  Dictionary mapping link labels to link attributes from commonmark link reference definitions 
+ * @param {Object} linkRefsMap -  Dictionary or Hash map mapping link labels to link attributes from commonmark link reference definitions 
  * @param {string[]} dangerousHtml - List of html tag names whose tags we don't want as part of output when parsing the markdown text*/
 export default function generateBlockNodesTree(textStream: string, linkRefsMap: LinkRefDataMap, dangerousHtml: string[]) {
 	let i = 0;

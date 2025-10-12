@@ -30,7 +30,7 @@ export function escapeSpecialCharacters(text: string) {
 	return escapedText
 }
 
-/** Gets the index where a '>' character ends a Html closing tag
+/** Gets the index where a '>' character ends an Html closing tag
  * @param {number} startIndex - Index where the closing tag starts in a string
  * @param {string} str - String containing the closing tag
  * @param {string[]} forbiddenTagNames - array of strings containing tag names that would be considered dangerous html 
@@ -80,6 +80,8 @@ export function getHtmlOpeningTagEndPos(startIndex: number, str: string, forbidd
 	let contentEnded = false
 	let pbpDelimiter = str[startIndex] // partBeingProcessed delimiter. This should be the '<' char
 	let tagName = ""
+	const whiteSpaceMargin = " \t\n"
+
 	if (partBeingProcessed !== '<')
 		return -1
 
@@ -115,7 +117,7 @@ export function getHtmlOpeningTagEndPos(startIndex: number, str: string, forbidd
 		}else {
 			pbpDelimiter = ""
 			contentEnded = false
-			if (["attr name", "quoted val", "tag name", "unquoted val"].includes(partBeingProcessed) && (/[a-zA-Z0-9_:]/).test(str[i])) {
+			if (["attr name", "quoted val", "tag name", "unquoted val"].includes(partBeingProcessed) && (/[a-zA-Z0-9_:]/).test(str[i]) && whiteSpaceMargin.includes(str[i-1])) {
 				partBeingProcessed = "attr name"
 			}else if ((partBeingProcessed === "attr name") && str[i] === '=') {
 				partBeingProcessed = "="
@@ -361,7 +363,9 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 			}else if (charIsEscaped) {
 				charIsEscaped = false;
 			}
-			currNode = addOrUpdateExistingNode("raw html", "<br />\n", currNode);
+			currNode = addOrUpdateExistingNode("raw html", "<br />", currNode);
+			currNode = addOrUpdateExistingNode("text content", "\n", currNode);
+			// console.log(currNode)
 		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i])) { //  && text[i] !== '|'
 			let replacement = getEscapedForm(text[i]);
 			currNode = addOrUpdateExistingNode("text content", replacement, currNode);
@@ -403,7 +407,6 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 			}
 		}else if (text[i] === '*' || text[i] === '_') { // markdown's emphasis and strong html elements representations
 			currNode = addOrUpdateExistingNode("pot delimiter run", text[i], currNode);
-			// console.log(currNode)
 			setAsLeftOrRightFlanking(currNode, text, i);
 		}else {
 			if (charIsEscaped) { // The escaped character didn't turn out to be a special character in this context

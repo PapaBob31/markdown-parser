@@ -11,10 +11,11 @@ right flanking delimiter run
 [punctuation]****[punctuation|whitespace]
 */
 
-/** Set the type attribute of a node whose content is a potential delimiter run as right flanking or left flanking according to the GFM spec
- * @param {currentNode} the node whose content attribute contains the potential delimiter run substring
- * @param {textStream} is the string the delimiter run substring was extracted from
- * @param {charIndex} is textStream's index of the last character in the delimiter run substring */
+/** Set the type attribute of a node whose content is a potential delimiter run to right flanking or 
+ * left flanking according to the common mark spec
+ * @param {Node} currentNode - the node whose content attribute contains the potential delimiter run substring
+ * @param {string} textStream - is the string the delimiter run substring was extracted from
+ * @param {number} charIndex - is textStream's index of the last character in the delimiter run substring */
 export function setAsLeftOrRightFlanking(currentNode: Node, textStream: string, charIndex: number) {
 	const currentChar = textStream[charIndex]; // last character in the potential delimiter run
 
@@ -56,11 +57,10 @@ export function setAsLeftOrRightFlanking(currentNode: Node, textStream: string, 
 	}
 }
 
-/** Creates a new node from the content of an existing node inside a linked list.
- * The new node's content would be any of the html emphasis closing or opening tags
- * @param {node}: the node whose content a new node is to be created from. It's content is expected to be a delimiter run
- * @param {newContent}: the content the new node would contain
-*/
+/** Creates a new raw html node containing a single 'strong' or 'em' tag string from the content of node and adds it to the node's
+ * linked list. It's also possible that the node's content will be directly transformed.
+ * @param {Node} node - The node whose content raw emphasis html is to be generated from. It's content is expected to be a delimiter run
+ * @param {string} newContent - The new tag ('strong' or 'em') string to be generated */
 function generateRawEmphasisHtml(node: Node, newContent: "</em>"|"<em>"|"<strong>"|"</strong>") {
 	let markersReplaced = 0;
 	if (newContent === "<em>" || newContent === "</em>") {
@@ -77,13 +77,13 @@ function generateRawEmphasisHtml(node: Node, newContent: "</em>"|"<em>"|"<strong
 	}
 
 	if (newContent === "</em>" || newContent == "</strong>") {
-		// create a new node from an existing one and add it to the linked list
+		// create a new node from an existing one and add it to the linked list so that whatever emphasis indicator remains mi
 		node.content = node.content.slice(markersReplaced);
 		let newNode = {type: "raw html", closed: true, content: newContent, next: node, prev: node.prev};
 		node.prev.next = newNode; 
 		node.prev = newNode
 	}else if (newContent === "<em>" || newContent == "<strong>") {
-		// create a new node from an existing one and add it to the linked list
+		// create a new node from an existing one and add it to the linked list so that whatever emphasis indicator remains mi
 		node.content = node.content.slice(0, node.content.length-markersReplaced);
 		let newNode = {type: "raw html", closed: true, content: newContent, next: node.next, prev: node};
 		node.next.prev = newNode; 
@@ -91,7 +91,11 @@ function generateRawEmphasisHtml(node: Node, newContent: "</em>"|"<em>"|"<strong
 	}
 }
 
-// transforms the opener and closer parameter's content into raw em|strong tag html
+
+/** Recursively determines and transforms the content of two nodes containing the opening and closing delimiter runs of an emphasis respectively.
+ * This content is transformed to the appropriate raw html content
+ * @param {Node} opener - The opening node whose content is to be transformed. It's content is expected to be a delimiter run
+ * @param {Node} closer - The closing node whose content is to be transformed. It's content is expected to be a delimiter run */
 function transformNodes(opener: Node, closer: Node){
 	if (closer.content.length === 1 || opener.content.length === 1) {
 		generateRawEmphasisHtml(opener, "<em>");
@@ -107,8 +111,10 @@ function transformNodes(opener: Node, closer: Node){
 }
 
 
-// Get the nearest Node when moving up the linked list containing a delimiter run 
-// that can open an emphasis that will be closed by the node parameter
+/** Get the first node whose content can open an emphasis when iterating towards the head of a linked list 
+ * starting from a node whose content can close the same type of emphasis
+ * @param {Node} node - The node whose content can close parameter 
+ * @returns {Node|null} - A node whose content can open emphasis or null if no suitable node was found */
 function getNearestEmphasisOpener(node: Node){
 	let currentNode = node.prev;
 	let uselessNodes = [];
@@ -120,6 +126,10 @@ function getNearestEmphasisOpener(node: Node){
 		}
 
 		if (currentNode.type === "raw html" || currentNode.type === "md link html") {
+			if ((/^<[^\s>]+\s*\/>$/).test(currentNode.content)) {
+				currentNode = currentNode.prev;
+				continue
+			}
 			let closingTagPattern = currentNode.content.match(/^<\/([^\s>]+)\s?>$/)
 			if (closingTagPattern){
 				unMatchedClosingTags.push(closingTagPattern[1].toLowerCase())
@@ -128,19 +138,11 @@ function getNearestEmphasisOpener(node: Node){
 			}
 			let openingTagPattern = currentNode.content.match(/^<([^\s>]+)\s?.*>$/)
 			if (openingTagPattern){
-				// console.log(unMatchedClosingTags, openingTagPattern[1])
-				if (unMatchedClosingTags.pop() !== openingTagPattern[1].toLowerCase()) {
-					// console.log("yeet")
+				if (unMatchedClosingTags.pop() !== openingTagPattern[1].toLowerCase()) { // emphasis couldn't close before the start of a non-void html tag
 					return null
 				}
 				currentNode = currentNode.prev;
 				continue;
-			}else {
-				let voidTagPattern = currentNode.content.match(/^<[^\s+>]\s*\/>$/)
-				if (!voidTagPattern){
-					// console.log("there")
-					return null
-				}
 			}
 		}else if (!specialTypes.includes(currentNode.type)) { // can't possibly open an emphasis
 			currentNode = currentNode.prev;
@@ -148,7 +150,7 @@ function getNearestEmphasisOpener(node: Node){
 		}else if (specialBfCase(node, currentNode) || !canOpenEmphasis(currentNode) || node.content[0] !== currentNode.content[0]) {
 			uselessNodes.push(currentNode); // they are left or right flanking but can't open an emphasis in this context
 		}else if (unMatchedClosingTags.length === 0) {
-			// prevents delimiter runs already embedded inside emphasis from being parsed as emphasis later
+			// prevents improper delimiter runs in-between two valid emphasis delimiter runs from being parsed as emphasis later
 			uselessNodes.forEach(node => {node.type = "text content"});
 			return currentNode;
 		}
@@ -156,23 +158,20 @@ function getNearestEmphasisOpener(node: Node){
 	}
 }
 
-/** Returns a boolean indicating if `node1` and `node2` whose contents are delimiter runs satisfies the condition below.
- * Either node1 or node2's contents are both right and left flanking delimiter runs and the sum of the lengths of 
- * both node's delimiter runs is a multiple of 3 unless both lengths are multiples of 3. */
+/** First checks if any node's content in a closer and opener pair can both open and close strong emphasis. If true, Determines if
+ * the sum of both nodes content length is a multiple of 3 and either nodes' content lengths aren't multiples of 3
+ * @param {Node} node1 - Any node of the opener and closer pair
+ * @param {Node} node2 - Any node of the opener and closer pair
+ * @returns {boolean} - indicating that the above condition is true or false */
 function specialBfCase(node1: Node, node2: Node) {
 	if (node1.type === "bf delimiter run" || node2.type === "bf delimiter run") {
-		if ((node1.content.length + node2.content.length)%3 !== 0) {
-			return false
-		}else if (node1.content.length%3 === 0 && node2.content.length%3 === 0){
-			return false
-		}else if ((node1.content.length + node2.content.length)%3 === 0) {
-			return true
-		}
+		return ((node1.content.length + node2.content.length)%3 === 0 && (node1.content.length%3 !== 0 || node2.content.length%3 !== 0))
 	}
 	return false
 }
 
-// Returns a boolean indiacating if the node parameter's content can open emphasis
+/** Returns a boolean indicating if a linked list node's content can open emphasis
+ * @param {Node} node - The node whose content is to be checked */
 function canOpenEmphasis(node: Node) {
 	if (node.type === "lf delimiter run") {
 		return true;
@@ -190,7 +189,8 @@ function canOpenEmphasis(node: Node) {
 	return false;
 }
 
-// Returns a boolean indicating if the node parameter's content can close emphasis
+/** Returns a boolean indicating if a linked list node's content can close emphasis
+ * @param {Node} node - The node whose content is to be checked */
 function canCloseEmphasis(node: Node) {
 	if (node.type === "rf delimiter run") {
 		return true;
@@ -204,24 +204,21 @@ function canCloseEmphasis(node: Node) {
 			return true;
 		}
 	}
-	return false;
+	return false; 
 }
 
-/** Generates html string|em tags nodes from existing nodes inside a linked list and adds them to the linked list
- * @param {head}: The head/start node of the linked list */
+/** Processes the text content of a linked list node for valid emphasis or strong emphasis indicators. If any valid indicator
+ * is found, New nodes containing the generated emphasis html is then added to the linked list
+ * @param {Node} {head} - The head/start node of the linked list */
 export default function processEmphasisNodes(head: Node) {
 	let currentNode = head;
 	let openers = [];
 	while (true) {
-		// console.log(currentNode)
 		if (canCloseEmphasis(currentNode)) { 
 			const opener = getNearestEmphasisOpener(currentNode);
-			if (opener) {
+			if (opener) { // a node with a valid emphasis opening delimiter run as it's content
 				transformNodes(opener, currentNode)
-			}else if (currentNode.type !== "bf delimiter run"){ // currentNode can't later serve as opener for another closing emphasis node
-				currentNode.type = "text content";
 			}
-			// console.log(1, opener.type, opener.content)
 			if (!opener || currentNode.type === "raw html" || currentNode.type === "text content") {
 				if (!currentNode.next) break; // end of linked list
 				currentNode = currentNode.next;
@@ -230,11 +227,5 @@ export default function processEmphasisNodes(head: Node) {
 			if (!currentNode.next) break; // end of linked list
 			currentNode = currentNode.next;
 		}
-		// console.log(2, currentNode.type, currentNode.content)
-		// if (currentNode.type === "raw html" || currentNode.type === "text content") {
-		// 	if (!currentNode.next) break; // end of linked list
-		// 	currentNode = currentNode.next;
-		// }
-		
 	}
 }
