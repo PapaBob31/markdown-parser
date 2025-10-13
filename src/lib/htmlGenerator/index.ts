@@ -1,7 +1,7 @@
-import type { HtmlNode } from "../index"
-import parseInlineNodes, { PUNCTUATIONS, escapeSpecialCharacters, getEscapedForm, parseCharRef } from "./inlineNodesParser"
-import { extractLinkRefsData } from "./inlineNodesParser/linkGenerator"
-import type {LinkRefData, LinkRefDataMap} from "./inlineNodesParser/linkGenerator"
+import type { HtmlNode } from "../../index"
+import parseInlineNodes, { PUNCTUATIONS, escapeSpecialCharacters, getEscapedForm, parseCharRef } from "../inlineNodesParser"
+import { extractLinkRefsData } from "../inlineNodesParser/linkGenerator"
+import type {LinkRefData, LinkRefDataMap} from "../inlineNodesParser/linkGenerator"
 
 /** Recursively traverses a markdown content tree and extract link reference definition values if any, from paragraph nodes content
  * @param {HtmlNode} rootNode - The root node of the tree 

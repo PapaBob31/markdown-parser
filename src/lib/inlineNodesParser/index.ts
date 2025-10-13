@@ -1,7 +1,7 @@
 import generateEmNodes, { setAsLeftOrRightFlanking } from "./emphasisGenerator"
 import type { LinkRefData, LinkRefDataMap } from "./linkGenerator"
 import { generateLinkHtmlNode } from "./linkGenerator"
-const validEntityRefs = require('../entities.json')
+const validEntityRefs = require('./entities.json')
 
 export const PUNCTUATIONS = "<>;,.()[]{}!`~+-_!=*&^%$#@\\/\"':?~|";
 
@@ -367,7 +367,7 @@ function generateLinkedList(text: string, dangerousHtmlTags: string[], linkRefs:
 				currNode = addOrUpdateExistingNode("raw html", "<br />", currNode);
 			}
 			currNode = addOrUpdateExistingNode("text content", "\n", currNode);
-		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i])) { //  && text[i] !== '|'
+		}else if (charIsEscaped && PUNCTUATIONS.includes(text[i])) {
 			let replacement = getEscapedForm(text[i]);
 			currNode = addOrUpdateExistingNode("text content", replacement, currNode);
 			charIsEscaped = false;

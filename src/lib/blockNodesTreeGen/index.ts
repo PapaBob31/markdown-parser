@@ -1,6 +1,6 @@
-import type {HtmlNode, LinkRefDataMap} from "../index"
-import { extractLinkRefsData } from "./inlineNodesParser/linkGenerator"
-import { getHtmlTagEndPos } from "./inlineNodesParser"
+import type {HtmlNode, LinkRefDataMap} from "../../index"
+import { extractLinkRefsData } from "../inlineNodesParser/linkGenerator"
+import { getHtmlTagEndPos } from "../inlineNodesParser"
 
 /**
  * A node of the tree data structure generated when parsing the text
