@@ -76,8 +76,8 @@ function lineRepsThematicBreak(textTokens: string[], startIndex: number) {
  * markdown characters that might give the document structure and seperating the text content this way makes it easier to process
  * @param {string} text - text from which we are to generate tokens from
  * @param {number} startIndex - index to start the token generation
- * @returns */ // not annotated yet
-function tokenizeLine(text: string, startIndex: number): [string[], number] {
+ * @returns {[string[], number]} - an array where the first element is the generated array of tokens and the second element is the index where token gen stopped */
+export function tokenizeLine(text: string, startIndex: number): [string[], number] {
 	const tokens: string[] = []
 	let curr_token = ""
 	let i=startIndex;
@@ -129,6 +129,7 @@ function tokenizeLine(text: string, startIndex: number): [string[], number] {
 			tokens.push(curr_token)
 	}
 
+	i-- // The index has been incremented past the actual last character index, so it has to be reduced back to the correct value
 	return [tokens, i]
 }
 
