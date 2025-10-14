@@ -28,7 +28,7 @@ export function updateLinkRefsMap(rootNode: HtmlNode, linkRefsMap: LinkRefDataMa
 
 
 
-/** Apply extra processing on the content of a leaf node such as parsing inline nodes and escaping special characters
+/** Modifies the content of a leaf node by parsing inline nodes and escaping special characters
  * @param {HtmlNode} node - Node whose content is to be processed
  * @param {Object} linkRefsMap -  Dictionary mapping link labels to link attributes from commonmark link reference definitions 
  * @param {string[]} dangerousHtml - List of html tag names whose tags we don't want as part of output when parsing the markdown text */
@@ -87,13 +87,15 @@ function getFirstWord(text: string) {
  * @param {HtmlNode} node - The node whose html text representation is generated
  * @returns {string} - the generated html text representation */
 function generateNodeHtml(node: HtmlNode) {
-	if (node.nodeName === "html block") {
+	if (node.nodeName === "hr") {
+		return `<hr />\n`
+	}else if (node.nodeName === "html block") {
 		return `${node.textContent.trimEnd()}\n`
 	}else if (node.nodeName === "paragraph") {
-		if (node.infoString === "loose") {
-			return node.textContent ? `<p>${node.textContent}</p>\n` : "";
-		}else {
+		if (node.parentNode.nodeName === "li" && !listAncestorIsLoose(node)) {
 			return node.textContent;
+		}else {
+			return node.textContent ? `<p>${node.textContent}</p>\n` : "";
 		}
 	}else if ((/h[1-6]/).test(node.nodeName)) {
 		const tag = node.nodeName;
@@ -142,49 +144,38 @@ function removeLeadingZeros(numText: string){
  * @returns {string} - The Html text generated*/
 export default function generateHtmlFromTree(rootNode: HtmlNode, linkRefs: LinkRefDataMap, dangerousHtmlTags:string[]):string {
 	let text = "";
+	const containerNodes = ["blockquote", "li", "ul", "ol"]
 
-	// Generate the opening tag for the node
-	if (rootNode.nodeName === "hr") {
-		return `<${rootNode.nodeName} />\n`
-	}else if (rootNode.nodeName === "ol") {
-		text = `<${rootNode.nodeName}${rootNode.startNo != '1' ? ' start="'+removeLeadingZeros(rootNode.startNo)+'"' : ""}>\n`	
-	}else if (rootNode.textContent === undefined) {
-		text = `<${rootNode.nodeName}>\n`;
+	// Generate the opening tag for a container node
+	if (rootNode.nodeName === "ol") {
+		text = `<${rootNode.nodeName}${rootNode.startNo != '1' ? ' start="'+removeLeadingZeros(rootNode.startNo)+'"' : ""}>`	
+	}else if (rootNode.nodeName !== "root") {
+		text = `<${rootNode.nodeName}>`;
 	}
 
-	if (rootNode.textContent === undefined && rootNode.children.length === 0 && rootNode.nodeName !== "blockquote")
-		text = text.slice(0, text.length-1)
+	if (rootNode.nodeName !== "li" && rootNode.nodeName !== "root"){
+		/* prevents child nodes html from starting on the same line as rootNode's opening tag since this node can't possibly 
+		 be a tight list node and it can't be the root node whose content can never start with a new line*/
+		text += "\n" 
+	}
 
-	if (rootNode.textContent === undefined) { // rootNode is a container block
-		if (rootNode.nodeName === "root") // the root node of the tree
-			text = ""; // Html shouldn't be generated for the tree's root node because it represents the document being parsed
-
-		for (let i=0; i<rootNode.children.length; i++) {
-			const childNode = rootNode.children[i];
-
-			if (childNode.nodeName === "paragraph") {
-				if (childNode.parentNode.nodeName !== "li" || listAncestorIsLoose(childNode)) {
-					childNode.infoString = "loose"
-				}else if (i === 0) { // first child node of a tight list
-					text = text.slice(0, text.length-1) // remove new line that must have been appended to the parent list item opening tag
-				}
-			}else if (childNode.nodeName === "blank") {
-				continue;
-			}
-			text += generateHtmlFromTree(childNode, linkRefs, dangerousHtmlTags);
-			if (rootNode.children.length > 1 && (childNode.nodeName === "paragraph") && childNode.infoString != "loose") {
-				if (i !== rootNode.children.length-1)
-					text += '\n'
+	for (let i=0; i<rootNode.children.length; i++) {
+		const childNode = rootNode.children[i];
+		if (rootNode.nodeName === "li") {
+			if ((childNode.nodeName !== "paragraph" || listAncestorIsLoose(childNode)) && text[text.length-1] !== '\n') {
+				text += "\n" // Ancestor list node is not a tight list so it's first child node html will start on a new line
 			}
 		}
-
-	}else { // rootNode is a leaf block
-		parseContent(rootNode, linkRefs, dangerousHtmlTags)
-		text = generateNodeHtml(rootNode);
+		if (containerNodes.includes(childNode.nodeName)){
+			text += generateHtmlFromTree(childNode, linkRefs, dangerousHtmlTags);
+		}else if (childNode.nodeName !== "blank"){
+			parseContent(childNode, linkRefs, dangerousHtmlTags)
+			text += generateNodeHtml(childNode);
+		}
 	}
 
-	if (rootNode.textContent === undefined && rootNode.nodeName !== "root") {
-		text += `</${rootNode.nodeName}>\n`; // Generate the closing tag for the node
+	if (rootNode.nodeName !== "root") {
+		text += `</${rootNode.nodeName}>\n`; // Generate the closing tag for a container node
 	}
 	
 	return text;
